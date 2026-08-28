@@ -36,13 +36,14 @@ gloss init --project      # project skills, explicit
 gloss init --user         # user skills; repository setup stays project-local
 ```
 
-Setup detects and installs all available Claude, Codex, Cursor, and Rovo
+Setup detects and installs all available Claude, Codex, Cursor, Grok Build, and Rovo
 harnesses. Their project destinations are:
 
 1. Claude: `.claude/skills/gloss`
 2. Codex: `.codex/skills/gloss`
 3. Cursor: `.cursor/plugins/local/archagents/skills/gloss`
-4. Rovo: `.rovodev/skills/archagent-gloss`
+4. Grok Build: `.grok/skills/gloss`
+5. Rovo: `.rovodev/skills/archagent-gloss`
 
 At user scope, the same paths are rooted in the user's home directory. Setup
 does not overwrite an existing skill unless it contains Gloss's ownership
