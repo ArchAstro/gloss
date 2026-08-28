@@ -2,11 +2,12 @@ use crate::error::{ErrorCode, GlossError, Result};
 use serde::Serialize;
 use std::env;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-const SKILL: &str = include_str!("../assets/skills/gloss/SKILL.md");
-const OPENAI_METADATA: &str = include_str!("../assets/skills/gloss/agents/openai.yaml");
+const SKILL: &str = include_str!("../.skills/gloss/SKILL.md");
+const OPENAI_METADATA: &str = include_str!("../.skills/gloss/agents/openai.yaml");
 const OWNERSHIP_MARKER: &str = "managed-by: gloss";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -36,7 +37,6 @@ pub struct SkillInstall {
 struct Target {
     harness: &'static str,
     directory: PathBuf,
-    skill: String,
 }
 
 pub struct SkillInstallPlan {
@@ -53,22 +53,15 @@ impl SkillInstallPlan {
         };
         let mut targets = Vec::new();
         for harness in detect_harnesses() {
-            let (directory, skill) = match harness {
-                "claude" => (root.join(".claude/skills/gloss"), SKILL.to_owned()),
-                "codex" => (root.join(".codex/skills/gloss"), SKILL.to_owned()),
-                "cursor" => (
-                    root.join(".cursor/plugins/local/archagents/skills/gloss"),
-                    SKILL.to_owned(),
-                ),
-                "grok" => (root.join(".grok/skills/gloss"), SKILL.to_owned()),
-                "rovo" => (root.join(".rovodev/skills/archagent-gloss"), rovo_skill()),
+            let directory = match harness {
+                "claude" => root.join(".claude/skills/gloss"),
+                "codex" => root.join(".codex/skills/gloss"),
+                "cursor" => root.join(".cursor/plugins/local/archagents/skills/gloss"),
+                "grok" => root.join(".grok/skills/gloss"),
+                "rovo" => root.join(".rovodev/skills/archagent-gloss"),
                 _ => unreachable!("harness registry is exhaustive"),
             };
-            targets.push(Target {
-                harness,
-                directory,
-                skill,
-            });
+            targets.push(Target { harness, directory });
         }
         let plan = Self {
             scope,
@@ -84,14 +77,26 @@ impl SkillInstallPlan {
     }
 
     pub fn install(&self) -> Result<Vec<SkillInstall>> {
+        let canonical = self.canonical_directory();
+        let canonical_metadata = canonical.join("agents/openai.yaml");
+        fs::create_dir_all(
+            canonical_metadata
+                .parent()
+                .expect("canonical metadata has a parent"),
+        )
+        .map_err(|error| GlossError::io(error, &canonical))?;
+        let canonical_changed = write_if_changed(&canonical.join("SKILL.md"), SKILL)?
+            | write_if_changed(&canonical_metadata, OPENAI_METADATA)?;
+
         let mut installs = Vec::new();
         for target in &self.targets {
             let skill_path = target.directory.join("SKILL.md");
             let metadata_path = target.directory.join("agents/openai.yaml");
             fs::create_dir_all(metadata_path.parent().expect("metadata has a parent"))
                 .map_err(|error| GlossError::io(error, &target.directory))?;
-            let changed = write_if_changed(&skill_path, &target.skill)?
-                | write_if_changed(&metadata_path, OPENAI_METADATA)?;
+            let changed = install_link(&self.root, &canonical.join("SKILL.md"), &skill_path)?
+                | install_link(&self.root, &canonical_metadata, &metadata_path)?
+                | canonical_changed;
             installs.push(SkillInstall {
                 harness: target.harness,
                 path: display(&target.directory),
@@ -105,35 +110,45 @@ impl SkillInstallPlan {
         if self.scope != SkillScope::Project {
             return Vec::new();
         }
-        self.targets
-            .iter()
-            .flat_map(|target| {
-                [
-                    target.directory.join("SKILL.md"),
-                    target.directory.join("agents/openai.yaml"),
-                ]
-            })
+        let mut files = vec![
+            self.canonical_directory().join("SKILL.md"),
+            self.canonical_directory().join("agents/openai.yaml"),
+        ];
+        files.extend(self.targets.iter().flat_map(|target| {
+            [
+                target.directory.join("SKILL.md"),
+                target.directory.join("agents/openai.yaml"),
+            ]
+        }));
+        files
+            .into_iter()
             .filter_map(|path| path.strip_prefix(&self.root).ok().map(Path::to_owned))
             .collect()
     }
 
     fn preflight(&self) -> Result<()> {
+        let canonical = self.canonical_directory();
+        preflight_canonical(&canonical.join("SKILL.md"), SKILL)?;
+        preflight_canonical(&canonical.join("agents/openai.yaml"), OPENAI_METADATA)?;
         for target in &self.targets {
             let skill_path = target.directory.join("SKILL.md");
-            if skill_path.exists() {
-                let existing = fs::read_to_string(&skill_path)
-                    .map_err(|error| GlossError::io(error, &skill_path))?;
-                if !existing.contains(OWNERSHIP_MARKER) {
-                    return Err(GlossError::new(
-                        ErrorCode::AmbiguousRepair,
-                        format!(
-                            "refusing to overwrite an unmanaged {} skill",
-                            target.harness
-                        ),
-                    )
-                    .file(&skill_path));
-                }
-            } else if target.directory.exists()
+            let metadata_path = target.directory.join("agents/openai.yaml");
+            preflight_adapter(
+                &self.root,
+                &self.canonical_directory().join("SKILL.md"),
+                &skill_path,
+                target.harness,
+                |contents| contents.contains(OWNERSHIP_MARKER),
+            )?;
+            preflight_adapter(
+                &self.root,
+                &self.canonical_directory().join("agents/openai.yaml"),
+                &metadata_path,
+                target.harness,
+                |contents| contents == OPENAI_METADATA,
+            )?;
+            if fs::symlink_metadata(&skill_path).is_err()
+                && target.directory.exists()
                 && fs::read_dir(&target.directory)
                     .map_err(|error| GlossError::io(error, &target.directory))?
                     .next()
@@ -150,6 +165,10 @@ impl SkillInstallPlan {
             }
         }
         Ok(())
+    }
+
+    fn canonical_directory(&self) -> PathBuf {
+        self.root.join(".skills/gloss")
     }
 }
 
@@ -206,10 +225,6 @@ fn rovo_via_acli() -> bool {
         .is_ok_and(|status| status.success())
 }
 
-fn rovo_skill() -> String {
-    SKILL.replacen("name: gloss", "name: archagent-gloss", 1)
-}
-
 fn home_dir() -> Result<PathBuf> {
     env::var_os("HOME")
         .or_else(|| env::var_os("USERPROFILE"))
@@ -228,6 +243,113 @@ fn write_if_changed(path: &Path, contents: &str) -> Result<bool> {
     }
     fs::write(path, contents).map_err(|error| GlossError::io(error, path))?;
     Ok(true)
+}
+
+fn preflight_canonical(path: &Path, expected: &str) -> Result<()> {
+    let Ok(metadata) = fs::symlink_metadata(path) else {
+        return Ok(());
+    };
+    if !metadata.file_type().is_file() {
+        return Err(GlossError::new(
+            ErrorCode::AmbiguousRepair,
+            "refusing to replace a non-file in the canonical Gloss skill",
+        )
+        .file(path));
+    }
+    let contents = fs::read_to_string(path).map_err(|error| GlossError::io(error, path))?;
+    if contents != expected && !contents.contains(OWNERSHIP_MARKER) {
+        return Err(GlossError::new(
+            ErrorCode::AmbiguousRepair,
+            "refusing to overwrite an unmanaged canonical Gloss skill",
+        )
+        .file(path));
+    }
+    Ok(())
+}
+
+fn preflight_adapter(
+    root: &Path,
+    source: &Path,
+    destination: &Path,
+    harness: &str,
+    managed: impl FnOnce(&str) -> bool,
+) -> Result<()> {
+    let metadata = match fs::symlink_metadata(destination) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(GlossError::io(error, destination)),
+    };
+    if metadata.file_type().is_symlink() {
+        let actual =
+            fs::read_link(destination).map_err(|error| GlossError::io(error, destination))?;
+        let expected = relative_target(root, destination, source)?;
+        if actual == expected {
+            return Ok(());
+        }
+    } else if metadata.file_type().is_file() {
+        let contents =
+            fs::read_to_string(destination).map_err(|error| GlossError::io(error, destination))?;
+        if managed(&contents) {
+            return Ok(());
+        }
+    }
+    Err(GlossError::new(
+        ErrorCode::AmbiguousRepair,
+        format!("refusing to overwrite an unmanaged {harness} skill adapter"),
+    )
+    .file(destination))
+}
+
+fn install_link(root: &Path, source: &Path, destination: &Path) -> Result<bool> {
+    let target = relative_target(root, destination, source)?;
+    if fs::symlink_metadata(destination).is_ok_and(|metadata| {
+        metadata.file_type().is_symlink()
+            && fs::read_link(destination).ok().as_deref() == Some(target.as_path())
+    }) {
+        return Ok(false);
+    }
+    match fs::remove_file(destination) {
+        Ok(()) => {}
+        Err(error) if error.kind() == ErrorKind::NotFound => {}
+        Err(error) => return Err(GlossError::io(error, destination)),
+    }
+    create_file_symlink(&target, destination)
+        .map_err(|error| GlossError::io(error, destination))?;
+    Ok(true)
+}
+
+fn relative_target(root: &Path, link: &Path, source: &Path) -> Result<PathBuf> {
+    let parent = link.parent().expect("skill adapter has a parent");
+    let parent = parent.strip_prefix(root).map_err(|_| {
+        GlossError::new(
+            ErrorCode::InvalidFormat,
+            "skill adapter is outside its scope",
+        )
+        .file(link)
+    })?;
+    let source = source.strip_prefix(root).map_err(|_| {
+        GlossError::new(
+            ErrorCode::InvalidFormat,
+            "canonical skill is outside its scope",
+        )
+        .file(source)
+    })?;
+    let mut target = PathBuf::new();
+    for _ in parent.components() {
+        target.push("..");
+    }
+    target.push(source);
+    Ok(target)
+}
+
+#[cfg(unix)]
+fn create_file_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_file_symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    std::os::windows::fs::symlink_file(target, link)
 }
 
 fn display(path: &Path) -> String {
