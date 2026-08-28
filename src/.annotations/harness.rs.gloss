@@ -1,4 +1,6 @@
 version: 1
-updated: 2026-08-28T23:10:05.161096Z
+updated: 2026-08-28T23:48:33.040256Z
 editor: codex
 
+01a04ac6-6b47-7990-8aef-4264675c7704 77:172 2026-08-28T23:48:32.711816Z calvin codex pr_3 Keep one canonical skill definition and expose it through harness-specific symlink adapters so setup never forks skill content.
+01a04ac6-6c90-7203-b026-7b30a964b5a1 245:354 2026-08-28T23:48:33.040256Z calvin codex pr_3 Migrate only Gloss-owned files and reject foreign adapter targets so canonicalization cannot overwrite user-managed skills.

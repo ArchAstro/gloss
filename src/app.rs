@@ -463,8 +463,9 @@ impl App {
                 )
                 .file(&gloss));
             }
-            let source_bytes =
-                fs::read(&absolute_source).map_err(|error| GlossError::io(error, &source))?;
+            let source_bytes = self.repo.read_worktree_file(&source).ok_or_else(|| {
+                GlossError::new(ErrorCode::IoError, "cannot read source file").file(&source)
+            })?;
             let current_hash = hash(&source_bytes);
             let mut document = read_gloss(&self.repo.root().join(&gloss), &gloss)?;
             let state_changed = state
@@ -748,8 +749,9 @@ jobs:
             let updated = now();
             let document = GlossFile::empty(updated, editor);
             write_gloss(&absolute_gloss, &document)?;
-            let source_bytes =
-                fs::read(&absolute_source).map_err(|error| GlossError::io(error, &source))?;
+            let source_bytes = self.repo.read_worktree_file(&source).ok_or_else(|| {
+                GlossError::new(ErrorCode::IoError, "cannot read source file").file(&source)
+            })?;
             state.record_file(&self.repo, &source, &source_bytes, updated)?;
             updated_files.push(display(&gloss));
         }

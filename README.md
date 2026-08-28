@@ -25,7 +25,8 @@ gloss init
 2. `.github/workflows/gloss.yml` for pull-request validation.
 3. The GitHub Linguist generated-file rule in `.gitattributes`.
 4. Header-only gloss metadata for the repository files it creates.
-5. The Gloss agent skill for every supported harness found on `PATH`.
+5. One canonical Gloss agent skill, with adapters for every supported harness
+   found on `PATH`.
 
 Agent skills install at project scope by default. Use `--user` for a home-level
 installation, or `--project` to state the default explicitly:
@@ -36,8 +37,9 @@ gloss init --project      # project skills, explicit
 gloss init --user         # user skills; repository setup stays project-local
 ```
 
-Setup detects and installs all available Claude, Codex, Cursor, Grok Build, and Rovo
-harnesses. Their project destinations are:
+Setup writes the skill once to `.skills/gloss`, then synthesizes lightweight
+symlink adapters for all detected Claude, Codex, Cursor, Grok Build, and Rovo
+harnesses. Their project adapter destinations are:
 
 1. Claude: `.claude/skills/gloss`
 2. Codex: `.codex/skills/gloss`
@@ -45,9 +47,10 @@ harnesses. Their project destinations are:
 4. Grok Build: `.grok/skills/gloss`
 5. Rovo: `.rovodev/skills/archagent-gloss`
 
-At user scope, the same paths are rooted in the user's home directory. Setup
-does not overwrite an existing skill unless it contains Gloss's ownership
-marker. Re-run `gloss init` to refresh managed skills safely.
+At user scope, the canonical skill is `~/.skills/gloss` and the same adapter
+paths are rooted in the user's home directory. Setup does not overwrite an
+existing skill unless it contains Gloss's ownership marker. Re-run `gloss init`
+to refresh managed skills and adapters safely.
 
 If `.github/workflows/gloss.yml` already exists without Gloss's ownership
 marker, setup stops instead of overwriting it.

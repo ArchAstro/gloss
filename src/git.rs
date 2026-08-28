@@ -203,7 +203,7 @@ impl GitRepo {
     pub fn read_file_in(&self, path: &Path, scope: &ChangeScope) -> Option<Vec<u8>> {
         let relative = self.relative(path).ok()?;
         match scope {
-            ChangeScope::WorkingTree => std::fs::read(self.root.join(relative)).ok(),
+            ChangeScope::WorkingTree => self.read_worktree_file(&relative),
             ChangeScope::Staged => {
                 let spec = format!(":{}", relative.to_string_lossy().replace('\\', "/"));
                 let output = self.output(["show", &spec]).ok()?;
@@ -215,6 +215,11 @@ impl GitRepo {
                 output.status.success().then_some(output.stdout)
             }
         }
+    }
+
+    pub fn read_worktree_file(&self, path: &Path) -> Option<Vec<u8>> {
+        let relative = self.relative(path).ok()?;
+        read_worktree_bytes(&self.root.join(relative)).ok()
     }
 
     pub fn read_file_at_ref(&self, reference: &str, path: &Path) -> Option<Vec<u8>> {
@@ -295,6 +300,25 @@ impl GitRepo {
             .output()
             .map_err(|error| GlossError::new(ErrorCode::GitError, error.to_string()))
     }
+}
+
+fn read_worktree_bytes(path: &Path) -> std::io::Result<Vec<u8>> {
+    let metadata = std::fs::symlink_metadata(path)?;
+    if metadata.file_type().is_symlink() {
+        return Ok(path_bytes(&std::fs::read_link(path)?));
+    }
+    std::fs::read(path)
+}
+
+#[cfg(unix)]
+fn path_bytes(path: &Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str().as_bytes().to_vec()
+}
+
+#[cfg(not(unix))]
+fn path_bytes(path: &Path) -> Vec<u8> {
+    path.to_string_lossy().into_owned().into_bytes()
 }
 
 fn run_at<const N: usize>(directory: &Path, args: [&str; N]) -> Result<String> {

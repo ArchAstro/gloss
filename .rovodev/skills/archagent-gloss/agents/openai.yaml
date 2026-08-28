@@ -1,4 +1,1 @@
-interface:
-  display_name: "Gloss"
-  short_description: "Maintain source-edit intent annotations"
-  default_prompt: "Use Gloss to annotate and validate the source changes in this repository."
+../../../../.skills/gloss/agents/openai.yaml

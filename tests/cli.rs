@@ -94,17 +94,27 @@ fn init_is_idempotent_and_hooks_stay_single() {
         ".grok/skills/gloss/SKILL.md",
         ".rovodev/skills/archagent-gloss/SKILL.md",
     ];
+    let canonical_skill = repo.path().join(".skills/gloss/SKILL.md");
+    assert!(canonical_skill.is_file());
     for skill in skill_paths {
         assert!(repo.path().join(skill).is_file(), "missing {skill}");
+        assert!(
+            fs::symlink_metadata(repo.path().join(skill))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "{skill} must reference the canonical skill"
+        );
+        assert_eq!(
+            fs::read_to_string(repo.path().join(skill)).unwrap(),
+            fs::read_to_string(&canonical_skill).unwrap()
+        );
         let annotation = Path::new(skill)
             .parent()
             .unwrap()
             .join(".annotations/SKILL.md.gloss");
         assert!(repo.path().join(annotation).is_file());
     }
-    assert!(fs::read_to_string(repo.path().join(skill_paths[4]))
-        .unwrap()
-        .contains("name: archagent-gloss"));
     let codex_skill_before = fs::read_to_string(repo.path().join(skill_paths[1])).unwrap();
 
     gloss(&repo)
@@ -165,6 +175,8 @@ fn init_user_installs_detected_skills_in_the_home_directory() {
         .success()
         .stdout(predicate::str::contains("\"skill_scope\": \"user\""));
 
+    let canonical_skill = home.path().join(".skills/gloss/SKILL.md");
+    assert!(canonical_skill.is_file());
     for skill in [
         ".claude/skills/gloss/SKILL.md",
         ".codex/skills/gloss/SKILL.md",
@@ -173,6 +185,13 @@ fn init_user_installs_detected_skills_in_the_home_directory() {
         ".rovodev/skills/archagent-gloss/SKILL.md",
     ] {
         assert!(home.path().join(skill).is_file(), "missing {skill}");
+        assert!(
+            fs::symlink_metadata(home.path().join(skill))
+                .unwrap()
+                .file_type()
+                .is_symlink(),
+            "{skill} must reference the canonical skill"
+        );
         assert!(!repo.path().join(skill).exists());
     }
     assert!(repo.path().join(".gitattributes").is_file());
@@ -194,6 +213,31 @@ fn init_project_does_not_require_a_home_directory() {
 
     assert!(repo.path().join(".codex/skills/gloss/SKILL.md").is_file());
     assert!(repo.path().join(".grok/skills/gloss/SKILL.md").is_file());
+    assert!(repo.path().join(".skills/gloss/SKILL.md").is_file());
+}
+
+#[test]
+fn init_migrates_managed_skill_copies_to_canonical_adapters() {
+    let repo = Repo::new();
+    let path = repo.harness_path(&["codex"]);
+    repo.write(
+        ".codex/skills/gloss/SKILL.md",
+        include_str!("../.skills/gloss/SKILL.md"),
+    );
+
+    gloss(&repo)
+        .env("PATH", path)
+        .arg("init")
+        .assert()
+        .success();
+
+    let adapter = repo.path().join(".codex/skills/gloss/SKILL.md");
+    assert!(fs::symlink_metadata(adapter)
+        .unwrap()
+        .file_type()
+        .is_symlink());
+    assert!(repo.path().join(".skills/gloss/SKILL.md").is_file());
+    gloss(&repo).arg("lint").assert().success();
 }
 
 #[test]
