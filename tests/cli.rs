@@ -73,7 +73,7 @@ fn run_git(directory: &Path, args: &[&str]) {
 #[test]
 fn init_is_idempotent_and_hooks_stay_single() {
     let repo = Repo::new();
-    let path = repo.harness_path(&["claude", "codex", "cursor", "rovodev"]);
+    let path = repo.harness_path(&["claude", "codex", "cursor", "grok", "rovodev"]);
     gloss(&repo)
         .env("PATH", &path)
         .arg("init")
@@ -91,6 +91,7 @@ fn init_is_idempotent_and_hooks_stay_single() {
         ".claude/skills/gloss/SKILL.md",
         ".codex/skills/gloss/SKILL.md",
         ".cursor/plugins/local/archagents/skills/gloss/SKILL.md",
+        ".grok/skills/gloss/SKILL.md",
         ".rovodev/skills/archagent-gloss/SKILL.md",
     ];
     for skill in skill_paths {
@@ -101,7 +102,7 @@ fn init_is_idempotent_and_hooks_stay_single() {
             .join(".annotations/SKILL.md.gloss");
         assert!(repo.path().join(annotation).is_file());
     }
-    assert!(fs::read_to_string(repo.path().join(skill_paths[3]))
+    assert!(fs::read_to_string(repo.path().join(skill_paths[4]))
         .unwrap()
         .contains("name: archagent-gloss"));
     let codex_skill_before = fs::read_to_string(repo.path().join(skill_paths[1])).unwrap();
@@ -154,7 +155,7 @@ fn init_is_idempotent_and_hooks_stay_single() {
 fn init_user_installs_detected_skills_in_the_home_directory() {
     let repo = Repo::new();
     let home = tempfile::tempdir().unwrap();
-    let path = repo.harness_path(&["claude", "codex", "cursor", "rovodev"]);
+    let path = repo.harness_path(&["claude", "codex", "cursor", "grok", "rovodev"]);
 
     gloss(&repo)
         .env("PATH", path)
@@ -168,6 +169,7 @@ fn init_user_installs_detected_skills_in_the_home_directory() {
         ".claude/skills/gloss/SKILL.md",
         ".codex/skills/gloss/SKILL.md",
         ".cursor/plugins/local/archagents/skills/gloss/SKILL.md",
+        ".grok/skills/gloss/SKILL.md",
         ".rovodev/skills/archagent-gloss/SKILL.md",
     ] {
         assert!(home.path().join(skill).is_file(), "missing {skill}");
@@ -180,7 +182,7 @@ fn init_user_installs_detected_skills_in_the_home_directory() {
 #[test]
 fn init_project_does_not_require_a_home_directory() {
     let repo = Repo::new();
-    let path = repo.harness_path(&["codex", "rovodev"]);
+    let path = repo.harness_path(&["codex", "grok", "rovodev"]);
 
     gloss(&repo)
         .env("PATH", path)
@@ -191,6 +193,7 @@ fn init_project_does_not_require_a_home_directory() {
         .success();
 
     assert!(repo.path().join(".codex/skills/gloss/SKILL.md").is_file());
+    assert!(repo.path().join(".grok/skills/gloss/SKILL.md").is_file());
 }
 
 #[test]

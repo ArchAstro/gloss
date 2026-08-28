@@ -60,6 +60,7 @@ impl SkillInstallPlan {
                     root.join(".cursor/plugins/local/archagents/skills/gloss"),
                     SKILL.to_owned(),
                 ),
+                "grok" => (root.join(".grok/skills/gloss"), SKILL.to_owned()),
                 "rovo" => (root.join(".rovodev/skills/archagent-gloss"), rovo_skill()),
                 _ => unreachable!("harness registry is exhaustive"),
             };
@@ -162,6 +163,9 @@ fn detect_harnesses() -> Vec<&'static str> {
     }
     if command_exists("cursor") {
         harnesses.push("cursor");
+    }
+    if command_exists("grok") {
+        harnesses.push("grok");
     }
     if command_exists("rovodev") || rovo_via_acli() {
         harnesses.push("rovo");
