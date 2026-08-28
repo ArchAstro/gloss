@@ -635,7 +635,7 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Gloss
-        run: cargo install gloss --locked
+        run: cargo install --git https://github.com/ArchAstro/gloss --tag v__GLOSS_VERSION__ --locked gloss
       - name: Validate changed files
         env:
           GLOSS_BASE: ${{ github.event.pull_request.base.sha }}
@@ -643,12 +643,13 @@ jobs:
 "#;
         const MARKER: &str = "# Managed by `gloss init`.";
 
+        let workflow = WORKFLOW.replace("__GLOSS_VERSION__", env!("CARGO_PKG_VERSION"));
         let relative = PathBuf::from(".github/workflows/gloss.yml");
         let path = self.repo.root().join(&relative);
         if path.exists() {
             let existing =
                 fs::read_to_string(&path).map_err(|error| GlossError::io(error, &relative))?;
-            if existing == WORKFLOW {
+            if existing == workflow {
                 return Ok(relative);
             }
             if !existing.starts_with(MARKER) {
@@ -662,7 +663,7 @@ jobs:
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|error| GlossError::io(error, parent))?;
         }
-        fs::write(&path, WORKFLOW).map_err(|error| GlossError::io(error, &relative))?;
+        fs::write(&path, workflow).map_err(|error| GlossError::io(error, &relative))?;
         Ok(relative)
     }
 
