@@ -131,6 +131,9 @@ fn init_is_idempotent_and_hooks_stay_single() {
     assert_eq!(hook.matches("# gloss:start").count(), 1);
     assert_eq!(hook.matches("gloss lint --staged").count(), 1);
     assert!(workflow_before.contains("GLOSS_BASE: ${{ github.event.pull_request.base.sha }}"));
+    assert!(workflow_before.contains(
+        "cargo install --git https://github.com/ArchAstro/gloss --tag v0.1.0 --locked gloss"
+    ));
     assert_eq!(fs::read_to_string(workflow_path).unwrap(), workflow_before);
     assert_eq!(
         fs::read_to_string(attribute_gloss).unwrap(),
