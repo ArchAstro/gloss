@@ -6,6 +6,14 @@ state under `.git/annotations/` maps its stable UUID to Git history.
 
 ## Install
 
+With Homebrew:
+
+```fish
+brew install archastro/tools/gloss
+```
+
+Or directly from source:
+
 ```fish
 cargo install --path .
 gloss init

@@ -4,6 +4,20 @@ version = "0.1.0"
 edition = "2021"
 description = "Agent-facing intent annotations attached to source edit hunks"
 license = "MIT"
+repository = "https://github.com/ArchAstro/gloss"
+homepage = "https://github.com/ArchAstro/gloss"
+readme = "README.md"
+keywords = ["annotations", "cli", "git", "agents"]
+categories = ["command-line-utilities", "development-tools"]
+include = [
+    "/src/*.rs",
+    "/assets/skills/gloss/SKILL.md",
+    "/assets/skills/gloss/agents/openai.yaml",
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/README.md",
+    "/LICENSE",
+]
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
