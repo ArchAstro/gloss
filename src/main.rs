@@ -1,6 +1,8 @@
 use clap::{Args, Parser, Subcommand};
 use gloss::format::LineRange;
-use gloss::{AddOptions, App, ChangeScope, CommandOutput, GlossError, LintOptions, UpdateOptions};
+use gloss::{
+    AddOptions, App, ChangeScope, CommandOutput, GlossError, LintOptions, SkillScope, UpdateOptions,
+};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -20,7 +22,7 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Install hooks, CI validation, generated-file handling, and metadata
-    Init,
+    Init(InitArgs),
     /// Attach an explanation to a working-tree edit hunk
     Add(AddArgs),
     /// Validate gloss files without changing them
@@ -43,6 +45,22 @@ enum Command {
         #[arg(allow_hyphen_values = true)]
         args: Vec<String>,
     },
+}
+
+#[derive(Args)]
+struct InitArgs {
+    #[arg(
+        long,
+        conflicts_with = "project",
+        help = "Install agent skills for the current user"
+    )]
+    user: bool,
+    #[arg(
+        long,
+        conflicts_with = "user",
+        help = "Install agent skills in this project (default)"
+    )]
+    project: bool,
 }
 
 #[derive(Args)]
@@ -130,7 +148,10 @@ fn run(cli: &Cli) -> Result<CommandOutput, GlossError> {
     let cwd = std::env::current_dir().map_err(|error| GlossError::io(error, "."))?;
     let app = App::discover(&cwd)?;
     match &cli.command {
-        Command::Init => app.init(),
+        Command::Init(args) => app.init(match (args.user, args.project) {
+            (true, false) => SkillScope::User,
+            _ => SkillScope::Project,
+        }),
         Command::Add(args) => app.add(
             &args.file,
             LineRange::parse(&args.range)?,

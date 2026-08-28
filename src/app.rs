@@ -1,6 +1,7 @@
 use crate::error::{ErrorCode, GlossError, Result};
 use crate::format::{gloss_path, source_path, GlossFile, GlossRecord, LineRange};
 use crate::git::{diff_hunks_between, ChangeScope, DiffHunk, GitRepo, LifecycleChange};
+use crate::harness::{SkillInstallPlan, SkillScope};
 use crate::state::{hash, DerivedState};
 use chrono::Utc;
 use serde::Serialize;
@@ -69,9 +70,10 @@ impl App {
         })
     }
 
-    pub fn init(&self) -> Result<CommandOutput> {
+    pub fn init(&self, skill_scope: SkillScope) -> Result<CommandOutput> {
         fs::create_dir_all(self.repo.git_dir().join("annotations"))
             .map_err(|error| GlossError::io(error, self.repo.git_dir().join("annotations")))?;
+        let skill_plan = SkillInstallPlan::detect(self.repo.root(), skill_scope)?;
         let workflow = self.install_ci_workflow()?;
         let attributes = self.repo.root().join(".gitattributes");
         let rule = "**/.annotations/*.gloss linguist-generated=true";
@@ -85,15 +87,22 @@ impl App {
             fs::write(&attributes, contents).map_err(|error| GlossError::io(error, &attributes))?;
         }
         self.install_hooks()?;
-        let setup_files = vec![PathBuf::from(".gitattributes"), workflow.clone()];
+        let skills = skill_plan.install()?;
+        let mut setup_files = vec![PathBuf::from(".gitattributes"), workflow.clone()];
+        setup_files.extend(skill_plan.project_files());
         let maintenance = self.update(
             &setup_files,
             UpdateOptions {
                 editor: Some("gloss".to_owned()),
             },
         )?;
+        let skill_count = skills.len();
         Ok(CommandOutput::new(
-            "Initialized Gloss: installed hooks, CI validation, generated-file handling, and setup metadata.",
+            format!(
+                "Initialized Gloss: installed hooks, CI validation, generated-file handling, setup metadata, and {skill_count} agent skill{} ({} scope).",
+                plural(skill_count),
+                skill_plan.scope().as_str(),
+            ),
             json!({
                 "ok": true,
                 "initialized": true,
@@ -101,6 +110,8 @@ impl App {
                 "ci_installed": true,
                 "generated_files_configured": true,
                 "workflow": display(&workflow),
+                "skill_scope": skill_plan.scope(),
+                "skills": skills,
                 "maintenance": maintenance.json,
             }),
         ))

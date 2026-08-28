@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 use std::process::Command as ProcessCommand;
@@ -30,6 +31,23 @@ impl Repo {
         run_git(self.path(), &["add", "."]);
         run_git(self.path(), &["commit", "-qm", message]);
     }
+
+    fn harness_path(&self, names: &[&str]) -> OsString {
+        let directory = self.path().join(".git/test-harness-bin");
+        fs::create_dir_all(&directory).unwrap();
+        for name in names {
+            let executable = directory.join(name);
+            fs::write(&executable, "#!/bin/sh\nexit 0\n").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        }
+        let current = std::env::var_os("PATH").unwrap_or_default();
+        std::env::join_paths(std::iter::once(directory).chain(std::env::split_paths(&current)))
+            .unwrap()
+    }
 }
 
 fn gloss(repo: &Repo) -> Command {
@@ -55,7 +73,12 @@ fn run_git(directory: &Path, args: &[&str]) {
 #[test]
 fn init_is_idempotent_and_hooks_stay_single() {
     let repo = Repo::new();
-    gloss(&repo).arg("init").assert().success();
+    let path = repo.harness_path(&["claude", "codex", "cursor", "rovodev"]);
+    gloss(&repo)
+        .env("PATH", &path)
+        .arg("init")
+        .assert()
+        .success();
     let workflow_path = repo.path().join(".github/workflows/gloss.yml");
     let workflow_before = fs::read_to_string(&workflow_path).unwrap();
     let attribute_gloss = repo.path().join(".annotations/.gitattributes.gloss");
@@ -64,8 +87,30 @@ fn init_is_idempotent_and_hooks_stay_single() {
         .join(".github/workflows/.annotations/gloss.yml.gloss");
     let attribute_gloss_before = fs::read_to_string(&attribute_gloss).unwrap();
     let workflow_gloss_before = fs::read_to_string(&workflow_gloss).unwrap();
+    let skill_paths = [
+        ".claude/skills/gloss/SKILL.md",
+        ".codex/skills/gloss/SKILL.md",
+        ".cursor/plugins/local/archagents/skills/gloss/SKILL.md",
+        ".rovodev/skills/archagent-gloss/SKILL.md",
+    ];
+    for skill in skill_paths {
+        assert!(repo.path().join(skill).is_file(), "missing {skill}");
+        let annotation = Path::new(skill)
+            .parent()
+            .unwrap()
+            .join(".annotations/SKILL.md.gloss");
+        assert!(repo.path().join(annotation).is_file());
+    }
+    assert!(fs::read_to_string(repo.path().join(skill_paths[3]))
+        .unwrap()
+        .contains("name: archagent-gloss"));
+    let codex_skill_before = fs::read_to_string(repo.path().join(skill_paths[1])).unwrap();
 
-    gloss(&repo).arg("init").assert().success();
+    gloss(&repo)
+        .env("PATH", &path)
+        .arg("init")
+        .assert()
+        .success();
 
     let attributes = fs::read_to_string(repo.path().join(".gitattributes")).unwrap();
     assert_eq!(attributes.matches("linguist-generated=true").count(), 1);
@@ -95,15 +140,83 @@ fn init_is_idempotent_and_hooks_stay_single() {
         fs::read_to_string(workflow_gloss).unwrap(),
         workflow_gloss_before
     );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(skill_paths[1])).unwrap(),
+        codex_skill_before
+    );
     gloss(&repo).arg("lint").assert().success();
+}
+
+#[test]
+fn init_user_installs_detected_skills_in_the_home_directory() {
+    let repo = Repo::new();
+    let home = tempfile::tempdir().unwrap();
+    let path = repo.harness_path(&["claude", "codex", "cursor", "rovodev"]);
+
+    gloss(&repo)
+        .env("PATH", path)
+        .env("HOME", home.path())
+        .args(["--json", "init", "--user"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"skill_scope\": \"user\""));
+
+    for skill in [
+        ".claude/skills/gloss/SKILL.md",
+        ".codex/skills/gloss/SKILL.md",
+        ".cursor/plugins/local/archagents/skills/gloss/SKILL.md",
+        ".rovodev/skills/archagent-gloss/SKILL.md",
+    ] {
+        assert!(home.path().join(skill).is_file(), "missing {skill}");
+        assert!(!repo.path().join(skill).exists());
+    }
+    assert!(repo.path().join(".gitattributes").is_file());
+    assert!(repo.path().join(".github/workflows/gloss.yml").is_file());
+}
+
+#[test]
+fn init_project_does_not_require_a_home_directory() {
+    let repo = Repo::new();
+    let path = repo.harness_path(&["codex", "rovodev"]);
+
+    gloss(&repo)
+        .env("PATH", path)
+        .env_remove("HOME")
+        .env_remove("USERPROFILE")
+        .args(["init", "--project"])
+        .assert()
+        .success();
+
+    assert!(repo.path().join(".codex/skills/gloss/SKILL.md").is_file());
+}
+
+#[test]
+fn init_refuses_to_overwrite_an_unmanaged_agent_skill() {
+    let repo = Repo::new();
+    let path = repo.harness_path(&["claude", "rovodev"]);
+    repo.write(
+        ".claude/skills/gloss/SKILL.md",
+        "---\nname: gloss\n---\nUser-owned skill.\n",
+    );
+
+    gloss(&repo)
+        .env("PATH", path)
+        .args(["--json", "init"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"code\": \"ambiguous_repair\""));
+    assert!(!repo.path().join(".gitattributes").exists());
+    assert!(!repo.path().join(".github/workflows/gloss.yml").exists());
 }
 
 #[test]
 fn init_refuses_to_overwrite_a_user_owned_ci_workflow() {
     let repo = Repo::new();
+    let path = repo.harness_path(&["rovodev"]);
     repo.write(".github/workflows/gloss.yml", "name: My custom workflow\n");
 
     gloss(&repo)
+        .env("PATH", path)
         .args(["--json", "init"])
         .assert()
         .failure()
