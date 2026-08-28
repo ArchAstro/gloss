@@ -1,0 +1,61 @@
+name: Maintain Dependabot Gloss metadata
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: dependabot-gloss-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    name: Update generated metadata
+    if: >-
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out trusted Gloss source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+      - name: Build trusted Gloss binary
+        run: cargo build --locked --manifest-path trusted/Cargo.toml --bin gloss
+      - name: Check out Dependabot branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: candidate
+      - name: Update and commit Gloss metadata
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          git -C candidate diff --binary "${BASE_SHA}" HEAD -- . |
+            git -C trusted apply
+          (
+            cd trusted
+            target/debug/gloss lint --fix --editor dependabot
+            git add -- ':(glob)**/.annotations/*.gloss'
+          )
+          git -C trusted diff --cached --binary -- ':(glob)**/.annotations/*.gloss' |
+            git -C candidate apply --whitespace=nowarn
+          git -C candidate add -- ':(glob)**/.annotations/*.gloss'
+          if git -C candidate diff --cached --quiet; then
+            echo "Gloss metadata is already current"
+            exit 0
+          fi
+          git -C candidate config user.name "dependabot[bot]"
+          git -C candidate config user.email "49699333+dependabot[bot]@users.noreply.github.com"
+          git -C candidate commit -m "Update Gloss metadata"
+          git -C candidate push origin "HEAD:${HEAD_REF}"
