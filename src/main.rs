@@ -1,7 +1,8 @@
 use clap::{Args, Parser, Subcommand};
 use gloss::format::LineRange;
 use gloss::{
-    AddOptions, App, ChangeScope, CommandOutput, GlossError, LintOptions, SkillScope, UpdateOptions,
+    AddOptions, App, ChangeScope, CommandOutput, GlossError, LintOptions, SkillScope,
+    UpdateOptions, WhyQuery,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -33,6 +34,8 @@ enum Command {
     Repair,
     /// Show gloss coverage for changed source hunks
     Status,
+    /// Explain code using current glosses whose ranges overlap each location
+    Why(WhyArgs),
     /// Manage lightweight Git hooks
     Hook {
         #[command(subcommand)]
@@ -106,6 +109,16 @@ struct LintArgs {
     fix: bool,
     #[arg(long, env = "GLOSS_AGENT", requires = "fix")]
     editor: Option<String>,
+}
+
+#[derive(Args)]
+struct WhyArgs {
+    #[arg(
+        required = true,
+        value_name = "FILE:LINE|FILE:START:END",
+        help = "Source location or inclusive line range to explain"
+    )]
+    locations: Vec<String>,
 }
 
 #[derive(Subcommand)]
@@ -184,6 +197,14 @@ fn run(cli: &Cli) -> Result<CommandOutput, GlossError> {
         ),
         Command::Repair => app.repair(),
         Command::Status => app.status(),
+        Command::Why(args) => {
+            let queries = args
+                .locations
+                .iter()
+                .map(|location| WhyQuery::parse(location))
+                .collect::<Result<Vec<_>, _>>()?;
+            app.why(&queries)
+        }
         Command::Hook {
             command: HookCommand::Install,
         } => app.hook_install(),

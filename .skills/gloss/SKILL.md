@@ -92,21 +92,25 @@ Added symlinks for the skills.
 
 ## While editing
 
-1. Run `gloss status` to see changed hunks and current explanation coverage.
-2. Inspect each logical edit using the review-value gate above. For decisions
+1. Before changing unfamiliar code, run `gloss why <file>:<line>` (or
+   `<file>:<start>:<end>`) for the lines in question. Treat returned records as
+   potentially relevant decision context, then verify they still apply; the
+   first implementation uses current stored ranges without historical inference.
+2. Run `gloss status` to see changed hunks and current explanation coverage.
+3. Inspect each logical edit using the review-value gate above. For decisions
    that pass it, add the rationale before finishing:
 
    ```text
    gloss add <file> <start>:<end> "<why this edit exists>"
    ```
 
-3. Before adding each record, verify that it contains an explicit reason and
+4. Before adding each record, verify that it contains an explicit reason and
    would help a reviewer evaluate the decision. If it only restates the hunk,
    do not add it.
-4. Explanations are optional. Every touched file still needs a fresh gloss
+5. Explanations are optional. Every touched file still needs a fresh gloss
    header, including files whose changes are self-explanatory. A header-only
    gloss is correct when no hunk carries useful decision context.
-5. Run `gloss lint --fix` after source edits. Review the generated metadata and
+6. Run `gloss lint --fix` after source edits. Review the generated metadata and
    resolve any `stale_gloss` or `ambiguous_repair` error instead of guessing.
 
 ## Before committing

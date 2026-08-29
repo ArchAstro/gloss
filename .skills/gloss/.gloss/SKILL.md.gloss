@@ -1,5 +1,5 @@
 version: 1
-updated: 2026-08-29T15:59:17.574576Z
+updated: 2026-08-29T19:36:36.031362Z
 editor: codex
 
 01a04ad4-51df-75e0-a332-8417aef9abcd 10:91 2026-08-29T00:03:43.711334Z calvin codex pr_3 Require each record to name the decision and its concrete reason because Gloss is review input, while the reviewer-question gate prevents annotation quotas from filling diffs with mechanical narration.
