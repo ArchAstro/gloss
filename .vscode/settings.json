@@ -1,0 +1,11 @@
+{
+  "files.exclude": {
+    "**/.annotations/**/*.gloss": true
+  },
+  "files.watcherExclude": {
+    "**/.annotations/**/*.gloss": true
+  },
+  "search.exclude": {
+    "**/.annotations/**/*.gloss": true
+  }
+}

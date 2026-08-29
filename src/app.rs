@@ -1,3 +1,4 @@
+use crate::editor::EditorInstallPlan;
 use crate::error::{ErrorCode, GlossError, Result};
 use crate::format::{gloss_path, source_path, GlossFile, GlossRecord, LineRange};
 use crate::git::{diff_hunks_between, ChangeScope, DiffHunk, GitRepo, LifecycleChange};
@@ -71,9 +72,10 @@ impl App {
     }
 
     pub fn init(&self, skill_scope: SkillScope) -> Result<CommandOutput> {
+        let skill_plan = SkillInstallPlan::detect(self.repo.root(), skill_scope)?;
+        let editor_plan = EditorInstallPlan::detect(self.repo.root())?;
         fs::create_dir_all(self.repo.git_dir().join("annotations"))
             .map_err(|error| GlossError::io(error, self.repo.git_dir().join("annotations")))?;
-        let skill_plan = SkillInstallPlan::detect(self.repo.root(), skill_scope)?;
         let workflow = self.install_ci_workflow()?;
         let attributes = self.repo.root().join(".gitattributes");
         let rule = "**/.annotations/*.gloss linguist-generated=true";
@@ -88,8 +90,10 @@ impl App {
         }
         self.install_hooks()?;
         let skills = skill_plan.install()?;
+        let editor_exclusions = editor_plan.install()?;
         let mut setup_files = vec![PathBuf::from(".gitattributes"), workflow.clone()];
         setup_files.extend(skill_plan.project_files());
+        setup_files.extend(editor_plan.project_files());
         let maintenance = self.update(
             &setup_files,
             UpdateOptions {
@@ -99,7 +103,7 @@ impl App {
         let skill_count = skills.len();
         Ok(CommandOutput::new(
             format!(
-                "Initialized Gloss: installed hooks, CI validation, generated-file handling, setup metadata, and {skill_count} agent skill{} ({} scope).",
+                "Initialized Gloss: installed hooks, CI validation, generated-file handling, editor exclusions, setup metadata, and {skill_count} agent skill{} ({} scope).",
                 plural(skill_count),
                 skill_plan.scope().as_str(),
             ),
@@ -112,6 +116,7 @@ impl App {
                 "workflow": display(&workflow),
                 "skill_scope": skill_plan.scope(),
                 "skills": skills,
+                "editor_exclusions": editor_exclusions,
                 "maintenance": maintenance.json,
             }),
         ))

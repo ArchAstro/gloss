@@ -116,6 +116,9 @@ fn init_is_idempotent_and_hooks_stay_single() {
         assert!(repo.path().join(annotation).is_file());
     }
     let codex_skill_before = fs::read_to_string(repo.path().join(skill_paths[1])).unwrap();
+    let ignore_before = fs::read_to_string(repo.path().join(".ignore")).unwrap();
+    let vscode_before = fs::read_to_string(repo.path().join(".vscode/settings.json")).unwrap();
+    let zed_before = fs::read_to_string(repo.path().join(".zed/settings.json")).unwrap();
 
     gloss(&repo)
         .env("PATH", &path)
@@ -158,7 +161,182 @@ fn init_is_idempotent_and_hooks_stay_single() {
         fs::read_to_string(repo.path().join(skill_paths[1])).unwrap(),
         codex_skill_before
     );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(".ignore")).unwrap(),
+        ignore_before
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(".vscode/settings.json")).unwrap(),
+        vscode_before
+    );
+    assert_eq!(
+        fs::read_to_string(repo.path().join(".zed/settings.json")).unwrap(),
+        zed_before
+    );
+    assert!(repo.path().join(".annotations/.ignore.gloss").is_file());
+    assert!(repo
+        .path()
+        .join(".vscode/.annotations/settings.json.gloss")
+        .is_file());
+    assert!(repo
+        .path()
+        .join(".zed/.annotations/settings.json.gloss")
+        .is_file());
     gloss(&repo).arg("lint").assert().success();
+}
+
+#[test]
+fn init_merges_editor_settings_and_preserves_existing_values() {
+    let repo = Repo::new();
+    repo.write(".ignore", "vendor/\n");
+    repo.write(
+        ".vscode/settings.json",
+        r#"{
+  "editor.fontSize": 15,
+  "files.exclude": {"**/.cache": true}
+}
+"#,
+    );
+    repo.write(
+        ".zed/settings.json",
+        r#"{"theme":"One Dark","file_scan_exclusions":["**/vendor"]}
+"#,
+    );
+    repo.write(
+        "gloss.sublime-project",
+        r#"{"folders":[{"path":".","file_exclude_patterns":["*.tmp"]}]}
+"#,
+    );
+
+    gloss(&repo)
+        .args(["--json", "init"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"editor\": \"portable_ignore\""))
+        .stdout(predicate::str::contains("\"editor\": \"vscode_family\""))
+        .stdout(predicate::str::contains("\"editor\": \"zed\""))
+        .stdout(predicate::str::contains("\"editor\": \"sublime_text\""));
+
+    let ignore = fs::read_to_string(repo.path().join(".ignore")).unwrap();
+    assert!(ignore.starts_with("vendor/\n"));
+    assert_eq!(ignore.matches("# gloss:start").count(), 1);
+    assert!(ignore.contains("**/.annotations/*.gloss"));
+
+    let vscode: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(repo.path().join(".vscode/settings.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(vscode["editor.fontSize"], 15);
+    assert_eq!(vscode["files.exclude"]["**/.cache"], true);
+    for key in ["files.exclude", "search.exclude", "files.watcherExclude"] {
+        assert_eq!(vscode[key]["**/.annotations/**/*.gloss"], true);
+    }
+
+    let zed: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(repo.path().join(".zed/settings.json")).unwrap())
+            .unwrap();
+    assert_eq!(zed["theme"], "One Dark");
+    assert!(zed["file_scan_exclusions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "**/vendor"));
+    assert!(zed["file_scan_exclusions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "**/.annotations/**/*.gloss"));
+
+    let sublime: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(repo.path().join("gloss.sublime-project")).unwrap(),
+    )
+    .unwrap();
+    let folder = &sublime["folders"][0];
+    assert!(folder["file_exclude_patterns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "*.tmp"));
+    assert!(folder["file_exclude_patterns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "*.gloss"));
+    assert!(folder["index_exclude_patterns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "*.gloss"));
+}
+
+#[test]
+fn init_preserves_zed_defaults_when_it_creates_the_exclusion_setting() {
+    let repo = Repo::new();
+    repo.write(".zed/settings.json", "{\"theme\":\"One Dark\"}\n");
+
+    gloss(&repo).arg("init").assert().success();
+
+    let zed: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(repo.path().join(".zed/settings.json")).unwrap())
+            .unwrap();
+    let exclusions = zed["file_scan_exclusions"].as_array().unwrap();
+    for expected in [
+        "**/.git",
+        "**/.DS_Store",
+        "**/.settings",
+        "**/.annotations/**/*.gloss",
+    ] {
+        assert!(
+            exclusions.iter().any(|value| value == expected),
+            "missing {expected}"
+        );
+    }
+}
+
+#[test]
+fn init_refuses_conflicting_editor_settings_before_writing_setup_files() {
+    let repo = Repo::new();
+    repo.write(
+        ".vscode/settings.json",
+        r#"{"files.exclude":{"**/.annotations/**/*.gloss":false}}
+"#,
+    );
+
+    gloss(&repo)
+        .args(["--json", "init"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"code\": \"ambiguous_repair\""));
+
+    assert!(!repo.path().join(".ignore").exists());
+    assert!(!repo.path().join(".gitattributes").exists());
+    assert!(!repo.path().join(".github/workflows/gloss.yml").exists());
+    assert_eq!(
+        fs::read_to_string(repo.path().join(".vscode/settings.json")).unwrap(),
+        "{\"files.exclude\":{\"**/.annotations/**/*.gloss\":false}}\n"
+    );
+}
+
+#[test]
+fn editor_exclusions_do_not_make_glosses_git_ignored() {
+    let repo = Repo::new();
+    gloss(&repo).arg("init").assert().success();
+    let annotation = ".vscode/.annotations/settings.json.gloss";
+
+    let ignored = ProcessCommand::new("git")
+        .args(["check-ignore", "--quiet", "--", annotation])
+        .current_dir(repo.path())
+        .status()
+        .unwrap();
+    assert!(!ignored.success());
+
+    repo.commit_all("initialize gloss");
+    let tracked = ProcessCommand::new("git")
+        .args(["ls-files", "--error-unmatch", annotation])
+        .current_dir(repo.path())
+        .status()
+        .unwrap();
+    assert!(tracked.success());
 }
 
 #[test]
