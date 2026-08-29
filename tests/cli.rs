@@ -330,7 +330,7 @@ fn editor_exclusions_do_not_make_glosses_git_ignored() {
         .unwrap();
     assert!(!ignored.success());
 
-    repo.commit_all("initialize gloss");
+    run_git(repo.path(), &["add", "."]);
     let tracked = ProcessCommand::new("git")
         .args(["ls-files", "--error-unmatch", annotation])
         .current_dir(repo.path())
