@@ -1,5 +1,6 @@
 version: 1
-updated: 2026-08-29T19:36:36.031362Z
+updated: 2026-08-29T19:56:20.424918Z
 editor: codex
 
 01a04ad4-51df-75e0-a332-8417aef9abcd 10:91 2026-08-29T00:03:43.711334Z calvin codex pr_3 Require each record to name the decision and its concrete reason because Gloss is review input, while the reviewer-question gate prevents annotation quotas from filling diffs with mechanical narration.
+01a04f18-3048-7fe0-bf92-a746e40732a9 93:137 2026-08-29T19:56:20.424918Z calvin codex why_skill Consult Gloss at decision points where prior intent could change the outcome, while treating matches as context rather than authority and empty results as absence of overlapping metadata rather than evidence that no constraint exists.

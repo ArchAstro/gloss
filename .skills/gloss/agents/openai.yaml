@@ -1,4 +1,4 @@
 interface:
   display_name: "Gloss"
-  short_description: "Capture review-relevant design rationale"
-  default_prompt: "Use Gloss to preserve why important source-edit decisions were made, skip trivial diff narration, and validate the repository's annotation metadata."
+  short_description: "Read and preserve source-edit rationale"
+  default_prompt: "Use $gloss to retrieve relevant prior rationale before changing code, preserve or consciously supersede its constraints, and capture why important new decisions were made."
