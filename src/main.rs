@@ -34,7 +34,7 @@ enum Command {
     Repair,
     /// Show gloss coverage for changed source hunks
     Status,
-    /// Explain code using current glosses whose ranges overlap each location
+    /// Explain code using historical gloss ranges projected onto each location
     Why(WhyArgs),
     /// Manage lightweight Git hooks
     Hook {

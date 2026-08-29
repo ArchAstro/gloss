@@ -225,7 +225,7 @@ impl App {
         write_gloss(&absolute_gloss, &document)?;
         let source_bytes = fs::read(&absolute).map_err(|error| GlossError::io(error, &source))?;
         let mut state = DerivedState::load(&self.repo)?;
-        state.record_file(&self.repo, &source, &source_bytes, now)?;
+        state.record_file(&source, &source_bytes, now);
         state.save(&self.repo)?;
 
         Ok(CommandOutput::new(
@@ -270,6 +270,7 @@ impl App {
         let mut glosses = self.resolve_glosses(paths, true)?;
         let state = DerivedState::load(&self.repo)?;
         let history = self.provenance_from_history()?;
+        let range_history = self.range_commits_from_history()?;
         let mut errors = Vec::new();
         let mut seen: HashMap<Uuid, PathBuf> = HashMap::new();
 
@@ -379,14 +380,19 @@ impl App {
                     }
                 }
             }
-            let line_count = source_line_count_bytes(&source_bytes);
+            let current_line_count = source_line_count_bytes(&source_bytes);
             let hunks = self.repo.diff_hunks_in(&source, scope).unwrap_or_default();
             for record in &document.records {
-                if record.range.end > line_count.max(1) {
+                let edit_key = record.edit_id.to_string();
+                let coordinate_line_count = range_history
+                    .get(&edit_key)
+                    .and_then(|commit| self.historical_record_line_count(commit, &edit_key))
+                    .unwrap_or(current_line_count);
+                if record.range.end > coordinate_line_count.max(1) {
                     errors.push(
                         GlossError::new(
                             ErrorCode::InvalidRange,
-                            "range extends past the end of the source file",
+                            "range extends past the end of its historical source revision",
                         )
                         .file(gloss)
                         .edit(
@@ -410,7 +416,6 @@ impl App {
                         ),
                     );
                 }
-                let edit_key = record.edit_id.to_string();
                 let known = history.contains_key(&edit_key);
                 let in_current_hunk = hunks
                     .iter()
@@ -503,34 +508,15 @@ impl App {
             let first_observation_changed =
                 state.file(&source).is_none() && self.repo.file_changed(&source)?;
             if !state_changed && !first_observation_changed {
-                state.record_file(&self.repo, &source, &source_bytes, document.updated)?;
+                state.record_file(&source, &source_bytes, document.updated);
                 continue;
             }
 
-            let previous_source = state
-                .source_snapshot(&self.repo, &source)
-                .and_then(|bytes| String::from_utf8(bytes).ok())
-                .or_else(|| self.repo.show_head_file(&source));
-            if let Some(old_source) = previous_source {
-                let current_source = String::from_utf8_lossy(&source_bytes);
-                let hunks = diff_hunks_between(&old_source, &current_source);
-                if old_source != current_source {
-                    for record in &mut document.records {
-                        record.range = remap_range(&record.range, &hunks).map_err(|error| {
-                            error.file(&gloss).edit(
-                                record.edit_id,
-                                record.range.start,
-                                record.range.end,
-                            )
-                        })?;
-                    }
-                }
-            }
             let now = fresh_timestamp(document.updated);
             document.updated = now;
             document.editor = editor.clone();
             write_gloss(&self.repo.root().join(&gloss), &document)?;
-            state.record_file(&self.repo, &source, &source_bytes, now)?;
+            state.record_file(&source, &source_bytes, now);
             updated_files.push(display(&gloss));
         }
         state.save(&self.repo)?;
@@ -618,6 +604,7 @@ impl App {
     }
 
     pub fn why(&self, queries: &[WhyQuery]) -> Result<CommandOutput> {
+        let range_commits = self.range_commits_from_history()?;
         let mut results = Vec::new();
         let mut human = String::new();
         for query in queries {
@@ -635,11 +622,42 @@ impl App {
             let gloss = gloss_path(&source)?;
             let absolute_gloss = self.repo.root().join(&gloss);
             let records = if absolute_gloss.is_file() {
-                read_gloss(&absolute_gloss, &gloss)?
-                    .records
-                    .into_iter()
-                    .filter(|record| record.range.overlaps(&query.range))
-                    .collect::<Vec<_>>()
+                let mut matches = Vec::new();
+                let head_gloss = self.repo.read_file_at_ref("HEAD", &gloss);
+                for record in read_gloss(&absolute_gloss, &gloss)?.records {
+                    let edit_key = record.edit_id.to_string();
+                    let range_commit = range_commits.get(&edit_key).cloned();
+                    let current_ranges = match range_commit.as_deref() {
+                        Some(commit) => self
+                            .project_record_range(commit, &edit_key, &source, &record.range)
+                            .ok_or_else(|| {
+                                GlossError::new(
+                                    ErrorCode::StaleGloss,
+                                    "cannot connect the stored range to its historical source revision",
+                                )
+                                .file(&gloss)
+                                .edit(record.edit_id, record.range.start, record.range.end)
+                            })?,
+                        None if head_gloss.as_ref().is_some_and(|bytes| {
+                            std::str::from_utf8(bytes).is_ok_and(|text| text.contains(&edit_key))
+                        }) => {
+                            return Err(GlossError::new(
+                                ErrorCode::StaleGloss,
+                                "cannot derive the stored range's commit; fetch full Git history and run `gloss repair`",
+                            )
+                            .file(&gloss)
+                            .edit(record.edit_id, record.range.start, record.range.end));
+                        }
+                        None => vec![record.range.clone()],
+                    };
+                    if current_ranges
+                        .iter()
+                        .any(|range| range.overlaps(&query.range))
+                    {
+                        matches.push((record, range_commit, current_ranges));
+                    }
+                }
+                matches
             } else {
                 Vec::new()
             };
@@ -648,11 +666,18 @@ impl App {
             if records.is_empty() {
                 human.push_str("  no annotations\n\n");
             } else {
-                for record in &records {
+                for (record, range_commit, current_ranges) in &records {
+                    let current = current_ranges
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(",");
                     human.push_str(&format!(
-                        "  {} {} {} {} {} {}\n    {}\n",
+                        "  {} {} -> {} {} {} {} {} {}\n    {}\n",
                         record.edit_id,
                         record.range,
+                        current,
+                        range_commit.as_deref().unwrap_or("working-tree"),
                         crate::format::timestamp(record.timestamp),
                         record.user,
                         record.agent,
@@ -665,10 +690,13 @@ impl App {
 
             let annotations = records
                 .into_iter()
-                .map(|record| {
+                .map(|(record, range_commit, current_ranges)| {
                     json!({
                         "edit_id": record.edit_id,
                         "range": [record.range.start, record.range.end],
+                        "stored_range": [record.range.start, record.range.end],
+                        "range_commit": range_commit,
+                        "current_ranges": current_ranges.iter().map(|range| [range.start, range.end]).collect::<Vec<_>>(),
                         "timestamp": record.timestamp,
                         "user": record.user,
                         "agent": record.agent,
@@ -687,6 +715,33 @@ impl App {
             human.trim_end().to_owned(),
             json!({"ok": true, "queries": results}),
         ))
+    }
+
+    fn project_record_range(
+        &self,
+        commit: &str,
+        edit_id: &str,
+        current_source: &Path,
+        stored_range: &LineRange,
+    ) -> Option<Vec<LineRange>> {
+        let historical_gloss = self.repo.find_gloss_with_edit_at_ref(commit, edit_id)?;
+        let historical_source = historical_source_path(&historical_gloss)?;
+        let old_source = self.repo.read_file_at_ref(commit, &historical_source)?;
+        let current_source_bytes = self.repo.read_worktree_file(current_source)?;
+        let old_source = String::from_utf8(old_source).ok()?;
+        let current_source_text = String::from_utf8(current_source_bytes).ok()?;
+        Some(project_range(
+            stored_range,
+            &diff_hunks_between(&old_source, &current_source_text),
+        ))
+    }
+
+    fn historical_record_line_count(&self, commit: &str, edit_id: &str) -> Option<u32> {
+        let historical_gloss = self.repo.find_gloss_with_edit_at_ref(commit, edit_id)?;
+        let historical_source = historical_source_path(&historical_gloss)?;
+        self.repo
+            .read_file_at_ref(commit, &historical_source)
+            .map(|source| source_line_count_bytes(&source))
     }
 
     pub fn hook_install(&self) -> Result<CommandOutput> {
@@ -858,7 +913,7 @@ jobs:
             let source_bytes = self.repo.read_worktree_file(&source).ok_or_else(|| {
                 GlossError::new(ErrorCode::IoError, "cannot read source file").file(&source)
             })?;
-            state.record_file(&self.repo, &source, &source_bytes, updated)?;
+            state.record_file(&source, &source_bytes, updated);
             updated_files.push(display(&gloss));
         }
         Ok(())
@@ -908,6 +963,14 @@ jobs:
     }
 
     fn provenance_from_history(&self) -> Result<BTreeMap<String, String>> {
+        self.edit_commits_from_history(false)
+    }
+
+    fn range_commits_from_history(&self) -> Result<BTreeMap<String, String>> {
+        self.edit_commits_from_history(true)
+    }
+
+    fn edit_commits_from_history(&self, latest: bool) -> Result<BTreeMap<String, String>> {
         if !self.repo.head_exists() {
             return Ok(BTreeMap::new());
         }
@@ -942,9 +1005,13 @@ jobs:
                     .next()
                     .and_then(|value| Uuid::parse_str(value).ok())
                 {
-                    mappings
-                        .entry(id.to_string())
-                        .or_insert_with(|| commit.clone());
+                    if latest {
+                        mappings.insert(id.to_string(), commit.clone());
+                    } else {
+                        mappings
+                            .entry(id.to_string())
+                            .or_insert_with(|| commit.clone());
+                    }
                 }
             }
         }
@@ -952,31 +1019,74 @@ jobs:
     }
 }
 
-fn remap_range(range: &LineRange, hunks: &[DiffHunk]) -> Result<LineRange> {
-    let mut delta: i64 = 0;
-    for hunk in hunks {
-        let old_end = if hunk.old_count == 0 {
-            hunk.old_start
-        } else {
-            hunk.old_start + hunk.old_count - 1
-        };
-        if old_end < range.start {
-            delta += hunk.new_count as i64 - hunk.old_count as i64;
-            continue;
+fn historical_source_path(gloss: &Path) -> Option<PathBuf> {
+    let metadata = gloss.parent()?;
+    match metadata.file_name()?.to_str()? {
+        ".gloss" | ".annotations" => {}
+        _ => return None,
+    }
+    let source_name = gloss.file_name()?.to_str()?.strip_suffix(".gloss")?;
+    Some(
+        metadata
+            .parent()
+            .unwrap_or_else(|| Path::new(""))
+            .join(source_name),
+    )
+}
+
+fn project_range(range: &LineRange, hunks: &[DiffHunk]) -> Vec<LineRange> {
+    let mut projected = Vec::new();
+    let mut added_hunks = HashSet::new();
+    for old_line in range.start..=range.end {
+        let mut shift = 0_i64;
+        let mut mapped = None;
+        for (index, hunk) in hunks.iter().enumerate() {
+            if hunk.old_count == 0 {
+                if old_line >= hunk.old_start {
+                    shift += i64::from(hunk.new_count);
+                }
+                continue;
+            }
+            let old_end = hunk.old_start + hunk.old_count - 1;
+            if old_line < hunk.old_start {
+                break;
+            }
+            if old_line <= old_end {
+                if hunk.new_count > 0 && added_hunks.insert(index) {
+                    mapped = Some(LineRange {
+                        start: hunk.new_start,
+                        end: hunk.new_start + hunk.new_count - 1,
+                    });
+                }
+                shift = i64::MIN;
+                break;
+            }
+            shift += i64::from(hunk.new_count) - i64::from(hunk.old_count);
         }
-        if hunk.old_start > range.end {
-            break;
-        }
-        if hunk.old_count != hunk.new_count {
-            return Err(GlossError::new(
-                ErrorCode::StaleGloss,
-                "source changes overlap this gloss and cannot be remapped deterministically",
-            ));
+        if let Some(mapped) = mapped {
+            push_projected_range(&mut projected, mapped);
+        } else if shift != i64::MIN {
+            let current = (i64::from(old_line) + shift) as u32;
+            push_projected_range(
+                &mut projected,
+                LineRange {
+                    start: current,
+                    end: current,
+                },
+            );
         }
     }
-    let start = (range.start as i64 + delta) as u32;
-    let end = (range.end as i64 + delta) as u32;
-    LineRange::new(start, end)
+    projected
+}
+
+fn push_projected_range(ranges: &mut Vec<LineRange>, range: LineRange) {
+    if let Some(last) = ranges.last_mut() {
+        if range.start <= last.end.saturating_add(1) {
+            last.end = last.end.max(range.end);
+            return;
+        }
+    }
+    ranges.push(range);
 }
 
 fn validate_range_in_file(path: &Path, range: &LineRange) -> Result<()> {

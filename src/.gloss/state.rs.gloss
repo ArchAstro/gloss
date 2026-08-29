@@ -1,0 +1,5 @@
+version: 1
+updated: 2026-08-29T20:27:34.452277Z
+editor: codex
+
+01a04f34-c8b4-7b13-b04f-cca4c6f60cda 54:54 2026-08-29T20:27:34.452277Z calvin codex historical_why Keep derived state to freshness hashes and header timestamps because historical range projection reads the authoritative source revision from Git; disposable source snapshots would duplicate repository history without serving maintenance.

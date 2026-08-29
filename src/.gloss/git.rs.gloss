@@ -1,6 +1,7 @@
 version: 1
-updated: 2026-08-28T23:48:33.679076Z
+updated: 2026-08-29T20:28:08.073012Z
 editor: codex
 
 01a04ac6-6dcf-7d73-aa19-b8dac3d6e80f 203:224 2026-08-28T23:48:33.359866Z calvin codex pr_3 Read symlinks using their Git blob representation so mode-only adapter changes participate in deterministic annotation maintenance.
 01a04ac6-6f0f-79c0-8945-7676238ebc0a 302:323 2026-08-28T23:48:33.679076Z calvin codex pr_3 Preserve raw link-target bytes on Unix so working-tree hashes match the exact content Git stages for symlinks.
+01a04f35-4c09-7213-9a4d-6dfaac6f1b38 222:233 2026-08-29T20:28:08.073012Z calvin codex historical_why Locate the UUID's gloss path inside its coordinate commit instead of assuming the current path because annotated sources can move and records created under the legacy metadata directory must remain traceable.
