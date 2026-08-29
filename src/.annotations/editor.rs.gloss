@@ -1,5 +1,0 @@
-version: 1
-updated: 2026-08-29T04:18:36.009979Z
-editor: codex
-
-01a04bbd-a969-7291-a71b-72cf25117859 41:76 2026-08-29T04:18:36.009979Z calvin codex editor_support Use layered, declarative project configuration: native settings where they can be merged safely, a portable ignore rule for terminal-editor search integrations, and no executable or user-global editor configuration.

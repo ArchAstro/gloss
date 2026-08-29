@@ -1,0 +1,7 @@
+version: 1
+updated: 2026-08-29T15:59:17.581497Z
+editor: codex
+
+01a04ac6-704d-7bc2-b64e-81c1ac055575 471:473 2026-08-28T23:48:33.997404Z calvin codex pr_3 Route maintenance reads through Git-aware source loading so symlink adapters do not masquerade as copied skill contents.
+01a04ac6-7205-7681-a18e-99967ed7b264 757:759 2026-08-28T23:48:34.437966Z calvin codex pr_3 Record new symlink sources using their link target, keeping derived hashes stable across repeated setup runs.
+01a04bbd-a845-79c0-a8a3-e0b3686a8de4 75:76 2026-08-29T04:18:35.717512Z calvin codex editor_support Preflight every editor merge before setup writes repository state so a malformed or conflicting editor configuration cannot leave initialization partially applied.
