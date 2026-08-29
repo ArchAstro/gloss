@@ -92,6 +92,7 @@ and collapse them as generated files in pull-request diffs.
 
 ```fish
 gloss status
+gloss why src/foo.ex:42 src/parser.ex:10:18
 gloss lint --fix
 git add -A
 gloss lint --staged
@@ -113,14 +114,17 @@ header; explanations remain optional.
 
 Maintenance commands have deliberately different authority:
 
-1. `gloss lint [path...]` checks working-tree coverage and never writes.
-2. `gloss lint --staged` reads the Git index and is installed as `pre-commit`.
-3. `gloss lint --base origin/main` validates a committed CI/PR diff. Set
+1. `gloss why <file>:<line>...` returns current gloss records whose stored line
+   ranges overlap each requested point or `<file>:<start>:<end>` range. It does
+   not transform historical ranges or infer additional provenance.
+2. `gloss lint [path...]` checks working-tree coverage and never writes.
+3. `gloss lint --staged` reads the Git index and is installed as `pre-commit`.
+4. `gloss lint --base origin/main` validates a committed CI/PR diff. Set
    `GLOSS_BASE` instead when that is more convenient.
-4. `gloss lint --fix` creates missing header-only glosses, updates timestamps,
+5. `gloss lint --fix` creates missing header-only glosses, updates timestamps,
    maintains ranges/lifecycle, then lints again. It never stages files.
-5. `gloss update [path...]` performs deterministic header/range maintenance.
-6. `gloss repair` rebuilds UUID provenance and refuses ambiguous range changes.
+6. `gloss update [path...]` performs deterministic header/range maintenance.
+7. `gloss repair` rebuilds UUID provenance and refuses ambiguous range changes.
 
 Every command accepts `--json`. Failures use stable codes such as
 `gloss_outside_hunk`, `stale_gloss`, and `outdated_header`.

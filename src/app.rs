@@ -31,6 +31,30 @@ pub struct UpdateOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct WhyQuery {
+    pub file: PathBuf,
+    pub range: LineRange,
+}
+
+impl WhyQuery {
+    pub fn parse(value: &str) -> Result<Self> {
+        let (prefix, end) = split_location_number(value)?;
+        let (file, start) = match prefix.rsplit_once(':') {
+            Some((file, start)) if !file.is_empty() && start.parse::<u32>().is_ok() => (
+                file,
+                start.parse::<u32>().expect("numeric line was checked"),
+            ),
+            _ if !prefix.is_empty() => (prefix, end),
+            _ => return Err(invalid_why_query(value)),
+        };
+        Ok(Self {
+            file: PathBuf::from(file),
+            range: LineRange::new(start, end).map_err(|error| error.file(file))?,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct LintOptions {
     pub scope: ChangeScope,
     pub fix: bool,
@@ -593,6 +617,78 @@ impl App {
         ))
     }
 
+    pub fn why(&self, queries: &[WhyQuery]) -> Result<CommandOutput> {
+        let mut results = Vec::new();
+        let mut human = String::new();
+        for query in queries {
+            let source = self.repo.relative(&query.file)?;
+            let absolute_source = self.repo.root().join(&source);
+            if !absolute_source.is_file() {
+                return Err(GlossError::new(
+                    ErrorCode::MissingSource,
+                    "source file does not exist",
+                )
+                .file(&source));
+            }
+            validate_range_in_file(&absolute_source, &query.range)?;
+
+            let gloss = gloss_path(&source)?;
+            let absolute_gloss = self.repo.root().join(&gloss);
+            let records = if absolute_gloss.is_file() {
+                read_gloss(&absolute_gloss, &gloss)?
+                    .records
+                    .into_iter()
+                    .filter(|record| record.range.overlaps(&query.range))
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            };
+
+            human.push_str(&format!("{}:{}\n", display(&source), query.range));
+            if records.is_empty() {
+                human.push_str("  no annotations\n\n");
+            } else {
+                for record in &records {
+                    human.push_str(&format!(
+                        "  {} {} {} {} {} {}\n    {}\n",
+                        record.edit_id,
+                        record.range,
+                        crate::format::timestamp(record.timestamp),
+                        record.user,
+                        record.agent,
+                        record.session_id,
+                        record.explanation,
+                    ));
+                }
+                human.push('\n');
+            }
+
+            let annotations = records
+                .into_iter()
+                .map(|record| {
+                    json!({
+                        "edit_id": record.edit_id,
+                        "range": [record.range.start, record.range.end],
+                        "timestamp": record.timestamp,
+                        "user": record.user,
+                        "agent": record.agent,
+                        "session_id": record.session_id,
+                        "explanation": record.explanation,
+                    })
+                })
+                .collect::<Vec<_>>();
+            results.push(json!({
+                "file": display(&source),
+                "range": [query.range.start, query.range.end],
+                "annotations": annotations,
+            }));
+        }
+        Ok(CommandOutput::new(
+            human.trim_end().to_owned(),
+            json!({"ok": true, "queries": results}),
+        ))
+    }
+
     pub fn hook_install(&self) -> Result<CommandOutput> {
         self.install_hooks()?;
         Ok(CommandOutput::new(
@@ -963,6 +1059,21 @@ fn plural(count: usize) -> &'static str {
     } else {
         "s"
     }
+}
+
+fn split_location_number(value: &str) -> Result<(&str, u32)> {
+    let (prefix, line) = value
+        .rsplit_once(':')
+        .ok_or_else(|| invalid_why_query(value))?;
+    let line = line.parse::<u32>().map_err(|_| invalid_why_query(value))?;
+    Ok((prefix, line))
+}
+
+fn invalid_why_query(value: &str) -> GlossError {
+    GlossError::new(
+        ErrorCode::InvalidFormat,
+        format!("invalid location `{value}`; expected <file>:<line> or <file>:<start>:<end>"),
+    )
 }
 fn ignored_source(path: &Path) -> bool {
     path.components().any(|part| part.as_os_str() == ".gloss")

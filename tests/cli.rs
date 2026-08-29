@@ -586,6 +586,125 @@ fn add_status_lint_and_history_rebuild_work_end_to_end() {
 }
 
 #[test]
+fn why_returns_overlapping_annotations_for_multiple_locations() {
+    let repo = Repo::new();
+    repo.write("src/foo.txt", "one\ntwo\nthree\nfour\nfive\nsix\n");
+    repo.write("src/plain.txt", "plain\n");
+    repo.commit_all("baseline");
+    repo.write(
+        "src/foo.txt",
+        "one\nchanged two\nthree\nfour\nchanged five\nsix\n",
+    );
+    gloss(&repo)
+        .env("GLOSS_USER", "calvin")
+        .env("GLOSS_AGENT", "codex")
+        .env("GLOSS_SESSION", "sess_why")
+        .args([
+            "add",
+            "src/foo.txt",
+            "2:2",
+            "Keep the first decision visible.",
+        ])
+        .assert()
+        .success();
+    gloss(&repo)
+        .env("GLOSS_USER", "calvin")
+        .env("GLOSS_AGENT", "codex")
+        .env("GLOSS_SESSION", "sess_why")
+        .args([
+            "add",
+            "src/foo.txt",
+            "5:5",
+            "Keep the second decision visible.",
+        ])
+        .assert()
+        .success();
+
+    gloss(&repo)
+        .args(["why", "src/foo.txt:2", "src/plain.txt:1"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Keep the first decision visible."))
+        .stdout(predicate::str::contains("src/plain.txt:1:1"))
+        .stdout(predicate::str::contains("no annotations"));
+
+    let output = gloss(&repo)
+        .args([
+            "--json",
+            "why",
+            "src/foo.txt:2",
+            "src/foo.txt:4:5",
+            "src/plain.txt:1",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["queries"].as_array().unwrap().len(), 3);
+    assert_eq!(json["queries"][0]["range"], serde_json::json!([2, 2]));
+    assert_eq!(
+        json["queries"][0]["annotations"].as_array().unwrap().len(),
+        1
+    );
+    assert_eq!(
+        json["queries"][0]["annotations"][0]["explanation"],
+        "Keep the first decision visible."
+    );
+    assert_eq!(json["queries"][1]["range"], serde_json::json!([4, 5]));
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["explanation"],
+        "Keep the second decision visible."
+    );
+    assert!(json["queries"][2]["annotations"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn why_uses_stored_ranges_without_transforming_them() {
+    let repo = annotated_repo();
+    repo.write("src/foo.txt", "inserted\none\nchanged\n");
+
+    let output = gloss(&repo)
+        .args(["--json", "why", "src/foo.txt:2", "src/foo.txt:3"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        json["queries"][0]["annotations"].as_array().unwrap().len(),
+        1
+    );
+    assert!(json["queries"][1]["annotations"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+fn why_rejects_invalid_or_unresolvable_locations() {
+    let repo = Repo::new();
+    repo.write("src/foo.txt", "one\ntwo\n");
+
+    gloss(&repo)
+        .args(["--json", "why", "src/foo.txt"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"code\": \"invalid_format\""));
+    gloss(&repo)
+        .args(["--json", "why", "src/missing.txt:1"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"code\": \"missing_source\""));
+    gloss(&repo)
+        .args(["--json", "why", "src/foo.txt:3"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("\"code\": \"invalid_range\""));
+}
+
+#[test]
 fn update_shifts_ranges_once_when_lines_move() {
     let repo = Repo::new();
     repo.write("src/foo.txt", "one\ntwo\nthree\n");
