@@ -121,6 +121,13 @@ Maintenance commands have deliberately different authority:
    commit, and projected current ranges. It follows direct source lineage and
    replacement hunks, but does not infer indirect influence across copied or
    independently reimplemented code.
+
+   Gloss derives two different Git links by scanning committed gloss patches
+   from oldest to newest: the first commit that adds a UUID is its logical
+   origin, while the latest commit that adds its current serialized record is
+   the coordinate revision for its stored range. Keeping these links separate
+   preserves edit identity when older Gloss versions mechanically changed a
+   range.
 2. `gloss lint [path...]` checks working-tree coverage and never writes.
 3. `gloss lint --staged` reads the Git index and is installed as `pre-commit`.
 4. `gloss lint --base origin/main` validates a committed CI/PR diff. Set

@@ -36,6 +36,12 @@ pub struct WhyQuery {
     pub range: LineRange,
 }
 
+#[derive(Clone, Copy)]
+enum HistoryCommit {
+    LogicalOrigin,
+    RangeCoordinate,
+}
+
 impl WhyQuery {
     pub fn parse(value: &str) -> Result<Self> {
         let (prefix, end) = split_location_number(value)?;
@@ -963,14 +969,17 @@ jobs:
     }
 
     fn provenance_from_history(&self) -> Result<BTreeMap<String, String>> {
-        self.edit_commits_from_history(false)
+        self.edit_commits_from_history(HistoryCommit::LogicalOrigin)
     }
 
     fn range_commits_from_history(&self) -> Result<BTreeMap<String, String>> {
-        self.edit_commits_from_history(true)
+        self.edit_commits_from_history(HistoryCommit::RangeCoordinate)
     }
 
-    fn edit_commits_from_history(&self, latest: bool) -> Result<BTreeMap<String, String>> {
+    fn edit_commits_from_history(
+        &self,
+        selection: HistoryCommit,
+    ) -> Result<BTreeMap<String, String>> {
         if !self.repo.head_exists() {
             return Ok(BTreeMap::new());
         }
@@ -989,34 +998,41 @@ jobs:
             ));
         }
         let text = String::from_utf8_lossy(&output.stdout);
-        let mut commit = String::new();
-        let mut mappings = BTreeMap::new();
-        for line in text.lines() {
-            if let Some(sha) = line.strip_prefix("GLOSS_COMMIT:") {
-                commit = sha.to_owned();
-                continue;
-            }
-            if line.starts_with("+++") {
-                continue;
-            }
-            if let Some(added) = line.strip_prefix('+') {
-                if let Some(id) = added
-                    .split_whitespace()
-                    .next()
-                    .and_then(|value| Uuid::parse_str(value).ok())
-                {
-                    if latest {
-                        mappings.insert(id.to_string(), commit.clone());
-                    } else {
+        Ok(parse_edit_commits(&text, selection))
+    }
+}
+
+fn parse_edit_commits(text: &str, selection: HistoryCommit) -> BTreeMap<String, String> {
+    let mut commit = String::new();
+    let mut mappings = BTreeMap::new();
+    for line in text.lines() {
+        if let Some(sha) = line.strip_prefix("GLOSS_COMMIT:") {
+            commit = sha.to_owned();
+            continue;
+        }
+        if line.starts_with("+++") {
+            continue;
+        }
+        if let Some(added) = line.strip_prefix('+') {
+            if let Some(id) = added
+                .split_whitespace()
+                .next()
+                .and_then(|value| Uuid::parse_str(value).ok())
+            {
+                match selection {
+                    HistoryCommit::LogicalOrigin => {
                         mappings
                             .entry(id.to_string())
                             .or_insert_with(|| commit.clone());
                     }
+                    HistoryCommit::RangeCoordinate => {
+                        mappings.insert(id.to_string(), commit.clone());
+                    }
                 }
             }
         }
-        Ok(mappings)
     }
+    mappings
 }
 
 fn historical_source_path(gloss: &Path) -> Option<PathBuf> {
@@ -1042,6 +1058,19 @@ fn project_range(range: &LineRange, hunks: &[DiffHunk]) -> Vec<LineRange> {
         let mut mapped = None;
         for (index, hunk) in hunks.iter().enumerate() {
             if hunk.old_count == 0 {
+                if old_line == hunk.old_start
+                    && old_line > range.start
+                    && hunk.new_count > 0
+                    && added_hunks.insert(index)
+                {
+                    push_projected_range(
+                        &mut projected,
+                        LineRange {
+                            start: hunk.new_start,
+                            end: hunk.new_start + hunk.new_count - 1,
+                        },
+                    );
+                }
                 if old_line >= hunk.old_start {
                     shift += i64::from(hunk.new_count);
                 }
@@ -1243,4 +1272,136 @@ fn install_hook(path: &Path, command: &str) -> Result<()> {
         fs::set_permissions(path, permissions).map_err(|error| GlossError::io(error, path))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EDIT_ID: &str = "0198f5cf-4807-7ac3-a42a-938ff9b78220";
+
+    fn range(start: u32, end: u32) -> LineRange {
+        LineRange { start, end }
+    }
+
+    fn hunk(old_start: u32, old_count: u32, new_start: u32, new_count: u32) -> DiffHunk {
+        DiffHunk {
+            old_start,
+            old_count,
+            new_start,
+            new_count,
+        }
+    }
+
+    #[test]
+    fn edit_history_distinguishes_logical_origin_from_coordinate_commit() {
+        let log = format!(
+            "GLOSS_COMMIT:first\n+++ b/src/.gloss/foo.gloss\n+{EDIT_ID} 2:2 record\n\
+             GLOSS_COMMIT:middle\n-{EDIT_ID} 2:2 record\n+{EDIT_ID} 3:3 record\n\
+             GLOSS_COMMIT:last\n+not-a-uuid 9:9 ignored\n"
+        );
+
+        assert_eq!(
+            parse_edit_commits(&log, HistoryCommit::LogicalOrigin)[EDIT_ID],
+            "first"
+        );
+        assert_eq!(
+            parse_edit_commits(&log, HistoryCommit::RangeCoordinate)[EDIT_ID],
+            "middle"
+        );
+        assert_eq!(
+            parse_edit_commits(&log, HistoryCommit::RangeCoordinate).len(),
+            1
+        );
+    }
+
+    #[test]
+    fn historical_paths_support_current_and_legacy_metadata_directories() {
+        assert_eq!(
+            historical_source_path(Path::new("src/.gloss/foo.rs.gloss")),
+            Some(PathBuf::from("src/foo.rs"))
+        );
+        assert_eq!(
+            historical_source_path(Path::new("src/.annotations/foo.rs.gloss")),
+            Some(PathBuf::from("src/foo.rs"))
+        );
+        assert_eq!(
+            historical_source_path(Path::new("src/other/foo.rs.gloss")),
+            None
+        );
+        assert_eq!(historical_source_path(Path::new("src/.gloss/foo.rs")), None);
+    }
+
+    #[test]
+    fn projection_preserves_unchanged_ranges() {
+        assert_eq!(project_range(&range(4, 6), &[]), vec![range(4, 6)]);
+    }
+
+    #[test]
+    fn projection_shifts_for_insertions_before_the_range() {
+        assert_eq!(
+            project_range(&range(4, 6), &[hunk(2, 0, 2, 3)]),
+            vec![range(7, 9)]
+        );
+    }
+
+    #[test]
+    fn projection_distinguishes_insertions_at_range_boundaries() {
+        assert_eq!(
+            project_range(&range(4, 6), &[hunk(4, 0, 4, 2)]),
+            vec![range(6, 8)]
+        );
+        assert_eq!(
+            project_range(&range(4, 6), &[hunk(7, 0, 7, 2)]),
+            vec![range(4, 6)]
+        );
+    }
+
+    #[test]
+    fn projection_shifts_for_deletions_and_replacements_before_the_range() {
+        assert_eq!(
+            project_range(&range(4, 6), &[hunk(2, 1, 2, 0)]),
+            vec![range(3, 5)]
+        );
+        assert_eq!(
+            project_range(&range(4, 6), &[hunk(2, 2, 2, 1)]),
+            vec![range(3, 5)]
+        );
+    }
+
+    #[test]
+    fn projection_includes_insertions_inside_the_range() {
+        assert_eq!(
+            project_range(&range(2, 4), &[hunk(3, 0, 3, 2)]),
+            vec![range(2, 6)]
+        );
+    }
+
+    #[test]
+    fn projection_associates_replacement_hunks() {
+        assert_eq!(
+            project_range(&range(2, 4), &[hunk(3, 1, 3, 2)]),
+            vec![range(2, 5)]
+        );
+    }
+
+    #[test]
+    fn projection_handles_partial_and_complete_deletions() {
+        assert_eq!(
+            project_range(&range(2, 4), &[hunk(3, 1, 3, 0)]),
+            vec![range(2, 3)]
+        );
+        assert!(project_range(&range(3, 3), &[hunk(3, 1, 3, 0)]).is_empty());
+    }
+
+    #[test]
+    fn projection_composes_multiple_hunks_and_keeps_disjoint_lineage() {
+        assert_eq!(
+            project_range(
+                &range(3, 8),
+                &[hunk(1, 0, 1, 2), hunk(5, 2, 7, 1), hunk(8, 0, 9, 2),],
+            ),
+            vec![range(5, 11)]
+        );
+    }
 }
