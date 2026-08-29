@@ -1,4 +1,5 @@
 pub mod app;
+pub mod editor;
 pub mod error;
 pub mod format;
 pub mod git;

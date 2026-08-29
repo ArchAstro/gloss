@@ -24,8 +24,9 @@ gloss init
 1. Reinstall-safe `pre-commit`, `post-commit`, and `post-rewrite` hooks.
 2. `.github/workflows/gloss.yml` for pull-request validation.
 3. The GitHub Linguist generated-file rule in `.gitattributes`.
-4. Header-only gloss metadata for the repository files it creates.
-5. One canonical Gloss agent skill, with adapters for every supported harness
+4. Project-local editor exclusions that do not affect Git tracking.
+5. Header-only gloss metadata for the repository files it creates.
+6. One canonical Gloss agent skill, with adapters for every supported harness
    found on `PATH`.
 
 Agent skills install at project scope by default. Use `--user` for a home-level
@@ -54,6 +55,31 @@ to refresh managed skills and adapters safely.
 
 If `.github/workflows/gloss.yml` already exists without Gloss's ownership
 marker, setup stops instead of overwriting it.
+
+### Editor integration
+
+`gloss init` keeps committed glosses out of the normal editing surface without
+putting them in `.gitignore` or changing user/global editor settings:
+
+1. VS Code, Cursor, and Windsurf: `.vscode/settings.json` file, search, and
+   watcher exclusions.
+2. Zed: `.zed/settings.json` file-scan exclusions, including Zed's defaults
+   when setup creates the setting.
+3. Sublime Text: `file_exclude_patterns` and `index_exclude_patterns` are
+   merged into existing root-level `*.sublime-project` files. Setup does not
+   create a project file when the repository has none.
+4. Helix, Neovim, Vim, and Emacs search/picker integrations: a managed rule in
+   `.ignore`, the portable ignore file used by ripgrep and related tools.
+
+Stock Neovim/Emacs tree views and JetBrains project views do not share a safe,
+declarative, portable project exclusion format. Setup deliberately avoids
+executable `.nvim.lua`/`.dir-locals.el` files and generated JetBrains workspace
+state. Configure those views locally if needed; their common ripgrep-based
+search integrations still honor `.ignore`.
+
+Existing settings and ignore rules are preserved. If a setting has an
+incompatible type, an explicit conflicting value, invalid JSON, or an edited
+Gloss ownership block, setup reports the conflict rather than guessing.
 
 ```gitattributes
 **/.annotations/*.gloss linguist-generated=true
