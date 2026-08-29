@@ -1,4 +1,4 @@
 interface:
   display_name: "Gloss"
-  short_description: "Maintain source-edit intent annotations"
-  default_prompt: "Use Gloss to annotate and validate the source changes in this repository."
+  short_description: "Capture review-relevant design rationale"
+  default_prompt: "Use Gloss to preserve why important source-edit decisions were made, skip trivial diff narration, and validate the repository's annotation metadata."
