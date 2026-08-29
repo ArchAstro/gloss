@@ -641,7 +641,12 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Gloss
-        run: cargo install --git https://github.com/ArchAstro/gloss --tag v__GLOSS_VERSION__ --locked gloss
+        run: |
+          if grep -Eq '^name = "gloss"$' Cargo.toml 2>/dev/null && test -f src/main.rs; then
+            cargo install --path . --locked
+          else
+            cargo install --git https://github.com/ArchAstro/gloss --tag v__GLOSS_VERSION__ --locked gloss
+          fi
       - name: Validate changed files
         env:
           GLOSS_BASE: ${{ github.event.pull_request.base.sha }}
