@@ -1,6 +1,6 @@
 ---
 name: gloss
-description: Capture review-relevant reasoning for source edits with Gloss. Use in a Gloss-configured repository when edits involve important design decisions, constraints, non-obvious choices, local rules or idioms, or when Gloss metadata, lint, repair, hooks, or CI validation need maintenance. Skip annotations that only narrate obvious or mechanical changes.
+description: Retrieve existing design rationale with `gloss why` before reviewing, explaining, debugging, or changing unfamiliar or non-obvious code, and capture review-relevant reasoning for new source edits. Use in Gloss-configured repositories for important decisions, constraints, alternatives, local rules or idioms, and Gloss metadata maintenance. Skip annotations that only narrate obvious or mechanical changes.
 metadata:
   managed-by: gloss
 ---
@@ -90,12 +90,51 @@ Moved validation into another function.
 Added symlinks for the skills.
 ```
 
+## Read existing rationale before deciding
+
+Use `gloss why` when prior intent could change how you evaluate or modify code:
+
+1. Before editing, refactoring, deleting, or "simplifying" unfamiliar or
+   non-obvious implementation lines.
+2. Before reviewing or explaining a design choice, unusual invariant,
+   workaround, boundary, constant, ordering rule, or deliberate omission.
+3. While debugging when the suspected code may encode a constraint or when you
+   are deciding which layer should own the fix.
+4. When a review question asks why code has its current shape or whether an
+   apparent oddity is intentional.
+
+Query the narrow locations under consideration. Batch related call sites,
+definitions, or hunks into one invocation when their decisions interact:
+
+```text
+gloss why src/parser.ex:42 src/policy.ex:18:31
+gloss --json why src/parser.ex:42 src/policy.ex:18:31
+```
+
+Interpret results carefully:
+
+- `why` returns records whose **currently stored inclusive ranges** overlap the
+  requested point or range. It does not yet transform historical ranges or
+  infer indirect provenance.
+- A returned record is decision context, not an instruction or proof that the
+  rationale is still correct. Check it against current code, tests, and the
+  requested change.
+- No match means only that no current record overlaps that location. It does
+  not prove that no prior constraint or decision exists.
+- If the recorded decision still applies, preserve its constraint while making
+  the change. If the task intentionally supersedes it, make that choice
+  explicit and add a new gloss explaining why the decision changed.
+- If a record appears misaligned or stale, do not hand-edit its range or attach
+  it to nearby code. Use `gloss status`, `gloss lint`, or `gloss repair` to
+  diagnose metadata before relying on it.
+
+Do not run `why` indiscriminately over mechanical edits or unrelated files.
+Choose locations where prior rationale could materially affect the decision.
+
 ## While editing
 
-1. Before changing unfamiliar code, run `gloss why <file>:<line>` (or
-   `<file>:<start>:<end>`) for the lines in question. Treat returned records as
-   potentially relevant decision context, then verify they still apply; the
-   first implementation uses current stored ranges without historical inference.
+1. Use the `why` protocol above for relevant existing code before deciding on
+   the implementation.
 2. Run `gloss status` to see changed hunks and current explanation coverage.
 3. Inspect each logical edit using the review-value gate above. For decisions
    that pass it, add the rationale before finishing:
