@@ -216,21 +216,21 @@ pub fn gloss_path(source: &Path) -> Result<PathBuf> {
     })?;
     let mut gloss_name = name.to_os_string();
     gloss_name.push(".gloss");
-    Ok(parent.join(".annotations").join(gloss_name))
+    Ok(parent.join(".gloss").join(gloss_name))
 }
 
 pub fn source_path(gloss: &Path) -> Result<PathBuf> {
-    let annotations = gloss
+    let metadata_dir = gloss
         .parent()
         .ok_or_else(|| invalid(gloss, "gloss path has no parent"))?;
-    if annotations.file_name().and_then(|name| name.to_str()) != Some(".annotations") {
+    if metadata_dir.file_name().and_then(|name| name.to_str()) != Some(".gloss") {
         return Err(GlossError::new(
             ErrorCode::OrphanedGloss,
-            "gloss is not inside a sibling .annotations directory",
+            "gloss is not inside a sibling .gloss directory",
         )
         .file(gloss));
     }
-    let parent = annotations.parent().unwrap_or_else(|| Path::new(""));
+    let parent = metadata_dir.parent().unwrap_or_else(|| Path::new(""));
     let name = gloss
         .file_name()
         .and_then(|name| name.to_str())
@@ -262,8 +262,14 @@ mod tests {
     fn source_and_gloss_paths_round_trip() {
         let source = Path::new("src/bar/baz.ex");
         let gloss = gloss_path(source).unwrap();
-        assert_eq!(gloss, Path::new("src/bar/.annotations/baz.ex.gloss"));
+        assert_eq!(gloss, Path::new("src/bar/.gloss/baz.ex.gloss"));
         assert_eq!(source_path(&gloss).unwrap(), source);
+        assert_eq!(
+            source_path(Path::new("src/bar/.annotations/baz.ex.gloss"))
+                .unwrap_err()
+                .code,
+            ErrorCode::OrphanedGloss
+        );
     }
 
     #[test]

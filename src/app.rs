@@ -78,7 +78,7 @@ impl App {
             .map_err(|error| GlossError::io(error, self.repo.git_dir().join("annotations")))?;
         let workflow = self.install_ci_workflow()?;
         let attributes = self.repo.root().join(".gitattributes");
-        let rule = "**/.annotations/*.gloss linguist-generated=true";
+        let rule = "**/.gloss/*.gloss linguist-generated=true";
         let mut contents = fs::read_to_string(&attributes).unwrap_or_default();
         if !contents.lines().any(|line| line.trim() == rule) {
             if !contents.is_empty() && !contents.ends_with('\n') {
@@ -960,8 +960,7 @@ fn plural(count: usize) -> &'static str {
     }
 }
 fn ignored_source(path: &Path) -> bool {
-    path.components()
-        .any(|part| part.as_os_str() == ".annotations")
+    path.components().any(|part| part.as_os_str() == ".gloss")
 }
 fn selected(source: &Path, paths: &[PathBuf]) -> bool {
     paths.is_empty()

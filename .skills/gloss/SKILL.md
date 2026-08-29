@@ -8,7 +8,7 @@ metadata:
 # Gloss
 
 Gloss stores review context for source edits in sibling
-`.annotations/<file>.gloss` files. Its purpose is to preserve the reasoning a
+`.gloss/<file>.gloss` files. Its purpose is to preserve the reasoning a
 reviewer cannot recover from the diff alone: why the code takes this shape,
 which constraints mattered, and what failure or tradeoff the choice addresses.
 Enumerate the concrete decision factors—constraints, alternatives, rules, and

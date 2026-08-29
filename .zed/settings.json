@@ -9,6 +9,6 @@
     "**/Thumbs.db",
     "**/.classpath",
     "**/.settings",
-    "**/.annotations/**/*.gloss"
+    "**/.gloss/**/*.gloss"
   ]
 }
