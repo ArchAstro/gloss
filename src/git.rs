@@ -136,19 +136,6 @@ impl GitRepo {
         Ok(!self.diff_hunks_in(path, scope)?.is_empty())
     }
 
-    pub fn show_head_file(&self, path: &Path) -> Option<String> {
-        if !self.head_exists() {
-            return None;
-        }
-        let relative = self.relative(path).ok()?;
-        let spec = format!("HEAD:{}", relative.to_string_lossy().replace('\\', "/"));
-        let output = self.output(["show", &spec]).ok()?;
-        output
-            .status
-            .success()
-            .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
-    }
-
     pub fn changed_paths(&self) -> Result<Vec<PathBuf>> {
         self.changed_paths_in(&ChangeScope::WorkingTree)
     }
@@ -230,6 +217,18 @@ impl GitRepo {
         );
         let output = self.output(["show", &spec]).ok()?;
         output.status.success().then_some(output.stdout)
+    }
+
+    pub fn find_gloss_with_edit_at_ref(&self, reference: &str, edit_id: &str) -> Option<PathBuf> {
+        let output = self
+            .output(["grep", "-l", "-F", edit_id, reference, "--", "*.gloss"])
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .find_map(|line| line.split_once(':').map(|(_, path)| PathBuf::from(path)))
     }
 
     pub fn lifecycle_changes(&self) -> Result<Vec<LifecycleChange>> {

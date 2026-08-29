@@ -114,17 +114,24 @@ header; explanations remain optional.
 
 Maintenance commands have deliberately different authority:
 
-1. `gloss why <file>:<line>...` returns current gloss records whose stored line
-   ranges overlap each requested point or `<file>:<start>:<end>` range. It does
-   not transform historical ranges or infer additional provenance.
+1. `gloss why <file>:<line>...` connects each stored range to the Git commit
+   whose source coordinates it uses, projects that range into the working tree,
+   and returns records that overlap each requested point or
+   `<file>:<start>:<end>` range. JSON includes the stored range, coordinate
+   commit, and projected current ranges. It follows direct source lineage and
+   replacement hunks, but does not infer indirect influence across copied or
+   independently reimplemented code.
 2. `gloss lint [path...]` checks working-tree coverage and never writes.
 3. `gloss lint --staged` reads the Git index and is installed as `pre-commit`.
 4. `gloss lint --base origin/main` validates a committed CI/PR diff. Set
    `GLOSS_BASE` instead when that is more convenient.
 5. `gloss lint --fix` creates missing header-only glosses, updates timestamps,
-   maintains ranges/lifecycle, then lints again. It never stages files.
-6. `gloss update [path...]` performs deterministic header/range maintenance.
-7. `gloss repair` rebuilds UUID provenance and refuses ambiguous range changes.
+   and maintains file lifecycle, then lints again. It never stages files or
+   rewrites a record's historical range.
+6. `gloss update [path...]` performs deterministic header and lifecycle
+   maintenance while preserving record UUIDs and historical ranges.
+7. `gloss repair` rebuilds disposable UUID and range-coordinate provenance from
+   Git history.
 
 Every command accepts `--json`. Failures use stable codes such as
 `gloss_outside_hunk`, `stale_gloss`, and `outdated_header`.

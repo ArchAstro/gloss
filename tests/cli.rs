@@ -662,7 +662,7 @@ fn why_returns_overlapping_annotations_for_multiple_locations() {
 }
 
 #[test]
-fn why_uses_stored_ranges_without_transforming_them() {
+fn why_projects_historical_ranges_into_the_working_tree() {
     let repo = annotated_repo();
     repo.write("src/foo.txt", "inserted\none\nchanged\n");
 
@@ -674,12 +674,121 @@ fn why_uses_stored_ranges_without_transforming_them() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(
         json["queries"][0]["annotations"].as_array().unwrap().len(),
-        1
+        0
     );
-    assert!(json["queries"][1]["annotations"]
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["range"],
+        serde_json::json!([2, 2])
+    );
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["stored_range"],
+        serde_json::json!([2, 2])
+    );
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["current_ranges"],
+        serde_json::json!([[3, 3]])
+    );
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["range_commit"],
+        head(&repo)
+    );
+}
+
+#[test]
+fn why_uses_the_commit_that_last_changed_a_legacy_stored_range() {
+    let repo = annotated_repo();
+    repo.write("src/foo.txt", "inserted\none\nchanged\n");
+    let gloss_path = repo.path().join("src/.gloss/foo.txt.gloss");
+    let shifted = fs::read_to_string(&gloss_path)
+        .unwrap()
+        .replace(" 2:2 ", " 3:3 ");
+    fs::write(gloss_path, shifted).unwrap();
+    repo.commit_all("shift stored range");
+    repo.write("src/foo.txt", "another\ninserted\none\nchanged\n");
+
+    let output = gloss(&repo)
+        .args(["--json", "why", "src/foo.txt:3", "src/foo.txt:4"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(json["queries"][0]["annotations"]
         .as_array()
         .unwrap()
         .is_empty());
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["range"],
+        serde_json::json!([3, 3])
+    );
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["current_ranges"],
+        serde_json::json!([[4, 4]])
+    );
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["range_commit"],
+        head(&repo)
+    );
+}
+
+#[test]
+fn why_associates_replacement_lines_and_source_moves() {
+    let repo = annotated_repo();
+    repo.write("src/foo.txt", "one\nrewritten\nextra\n");
+    let replaced = gloss(&repo)
+        .args(["--json", "why", "src/foo.txt:3"])
+        .output()
+        .unwrap();
+    assert!(replaced.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&replaced.stdout).unwrap();
+    assert_eq!(
+        json["queries"][0]["annotations"][0]["current_ranges"],
+        serde_json::json!([[2, 3]])
+    );
+
+    repo.write("src/foo.txt", "one\nchanged\n");
+    fs::create_dir_all(repo.path().join("lib/.gloss")).unwrap();
+    run_git(repo.path(), &["mv", "src/foo.txt", "lib/foo.txt"]);
+    run_git(
+        repo.path(),
+        &["mv", "src/.gloss/foo.txt.gloss", "lib/.gloss/foo.txt.gloss"],
+    );
+    repo.commit_all("move annotated source");
+    gloss(&repo)
+        .args(["why", "lib/foo.txt:2"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Capture the reason."));
+}
+
+#[test]
+fn why_resolves_records_created_in_the_legacy_metadata_directory() {
+    let repo = Repo::new();
+    repo.write("src/foo.txt", "one\ntwo\n");
+    repo.commit_all("baseline");
+    repo.write("src/foo.txt", "one\nchanged\n");
+    repo.write(
+        "src/.annotations/foo.txt.gloss",
+        "version: 1\nupdated: 2026-08-29T00:00:00Z\neditor: codex\n\n0198f5cf-4807-7ac3-a42a-938ff9b78220 2:2 2026-08-29T00:00:00Z calvin codex legacy Preserve the historical path contract.\n",
+    );
+    repo.commit_all("annotate in legacy directory");
+    fs::create_dir_all(repo.path().join("src/.gloss")).unwrap();
+    run_git(
+        repo.path(),
+        &[
+            "mv",
+            "src/.annotations/foo.txt.gloss",
+            "src/.gloss/foo.txt.gloss",
+        ],
+    );
+    repo.commit_all("move metadata directory");
+
+    gloss(&repo)
+        .args(["why", "src/foo.txt:2"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Preserve the historical path contract.",
+        ));
 }
 
 #[test]
@@ -705,7 +814,7 @@ fn why_rejects_invalid_or_unresolvable_locations() {
 }
 
 #[test]
-fn update_shifts_ranges_once_when_lines_move() {
+fn update_preserves_historical_ranges_when_lines_move() {
     let repo = Repo::new();
     repo.write("src/foo.txt", "one\ntwo\nthree\n");
     repo.commit_all("baseline");
@@ -725,7 +834,7 @@ fn update_shifts_ranges_once_when_lines_move() {
         .success();
     let path = repo.path().join("src/.gloss/foo.txt.gloss");
     let first = fs::read_to_string(&path).unwrap();
-    assert!(first.lines().any(|line| line.contains(" 3:3 ")));
+    assert!(first.lines().any(|line| line.contains(" 2:2 ")));
     gloss(&repo)
         .env("GLOSS_AGENT", "codex")
         .arg("update")
@@ -740,7 +849,31 @@ fn update_shifts_ranges_once_when_lines_move() {
         .assert()
         .success();
     let second = fs::read_to_string(repo.path().join("src/.gloss/foo.txt.gloss")).unwrap();
-    assert!(second.lines().any(|line| line.contains(" 4:4 ")));
+    assert!(second.lines().any(|line| line.contains(" 2:2 ")));
+}
+
+#[test]
+fn lint_validates_a_stored_range_against_its_historical_source() {
+    let repo = Repo::new();
+    repo.write("src/foo.txt", "one\ntwo\nthree\n");
+    repo.commit_all("baseline");
+    repo.write("src/foo.txt", "one\ntwo\nchanged\n");
+    gloss(&repo)
+        .args([
+            "add",
+            "src/foo.txt",
+            "3:3",
+            "Preserve the historical coordinate.",
+        ])
+        .assert()
+        .success();
+    repo.commit_all("annotated third line");
+
+    repo.write("src/foo.txt", "one\n");
+    gloss(&repo).args(["lint", "--fix"]).assert().success();
+    let metadata = fs::read_to_string(repo.path().join("src/.gloss/foo.txt.gloss")).unwrap();
+    assert!(metadata.lines().any(|line| line.contains(" 3:3 ")));
+    gloss(&repo).arg("lint").assert().success();
 }
 
 #[test]

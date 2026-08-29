@@ -113,9 +113,13 @@ gloss --json why src/parser.ex:42 src/policy.ex:18:31
 
 Interpret results carefully:
 
-- `why` returns records whose **currently stored inclusive ranges** overlap the
-  requested point or range. It does not yet transform historical ranges or
-  infer indirect provenance.
+- A stored range uses the source coordinates from an older Git commit. `why`
+  derives the commit that last established that serialized range, projects it
+  into the working tree, and returns records whose projected ranges overlap the
+  requested point or range.
+- Projection follows direct source lineage, including file moves and replacement
+  hunks. It does not infer influence across copied code, independently
+  reimplemented ideas, or other non-lineage relationships.
 - A returned record is decision context, not an instruction or proof that the
   rationale is still correct. Check it against current code, tests, and the
   requested change.
@@ -124,9 +128,10 @@ Interpret results carefully:
 - If the recorded decision still applies, preserve its constraint while making
   the change. If the task intentionally supersedes it, make that choice
   explicit and add a new gloss explaining why the decision changed.
-- If a record appears misaligned or stale, do not hand-edit its range or attach
-  it to nearby code. Use `gloss status`, `gloss lint`, or `gloss repair` to
-  diagnose metadata before relying on it.
+- A stored range is expected to differ from current line numbers. Use the
+  projected ranges from `why`; do not hand-edit or retarget the historical
+  range. If projection cannot resolve its Git coordinate, run `gloss repair`
+  after ensuring full repository history is available.
 
 Do not run `why` indiscriminately over mechanical edits or unrelated files.
 Choose locations where prior rationale could materially affect the decision.

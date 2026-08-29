@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct DerivedState {
@@ -51,21 +51,8 @@ impl DerivedState {
         self.files.get(&key(relative))
     }
 
-    pub fn record_file(
-        &mut self,
-        repo: &GitRepo,
-        relative: &Path,
-        source: &[u8],
-        updated: DateTime<Utc>,
-    ) -> Result<()> {
+    pub fn record_file(&mut self, relative: &Path, source: &[u8], updated: DateTime<Utc>) {
         let source_hash = hash(source);
-        let snapshot = snapshot_path(repo, &source_hash);
-        if let Some(parent) = snapshot.parent() {
-            fs::create_dir_all(parent).map_err(|error| GlossError::io(error, parent))?;
-        }
-        if !snapshot.exists() {
-            fs::write(&snapshot, source).map_err(|error| GlossError::io(error, &snapshot))?;
-        }
         self.files.insert(
             key(relative),
             FileState {
@@ -73,12 +60,6 @@ impl DerivedState {
                 header_updated: updated,
             },
         );
-        Ok(())
-    }
-
-    pub fn source_snapshot(&self, repo: &GitRepo, relative: &Path) -> Option<Vec<u8>> {
-        let state = self.file(relative)?;
-        fs::read(snapshot_path(repo, &state.source_hash)).ok()
     }
 
     pub fn remove_file(&mut self, relative: &Path) {
@@ -93,13 +74,6 @@ pub fn hash(bytes: &[u8]) -> String {
 
 fn index_path(repo: &GitRepo) -> std::path::PathBuf {
     repo.git_dir().join("annotations").join("index.json")
-}
-
-fn snapshot_path(repo: &GitRepo, source_hash: &str) -> PathBuf {
-    repo.git_dir()
-        .join("annotations")
-        .join("snapshots")
-        .join(source_hash)
 }
 
 fn key(path: &Path) -> String {
