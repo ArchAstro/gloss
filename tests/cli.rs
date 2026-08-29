@@ -81,10 +81,8 @@ fn init_is_idempotent_and_hooks_stay_single() {
         .success();
     let workflow_path = repo.path().join(".github/workflows/gloss.yml");
     let workflow_before = fs::read_to_string(&workflow_path).unwrap();
-    let attribute_gloss = repo.path().join(".annotations/.gitattributes.gloss");
-    let workflow_gloss = repo
-        .path()
-        .join(".github/workflows/.annotations/gloss.yml.gloss");
+    let attribute_gloss = repo.path().join(".gloss/.gitattributes.gloss");
+    let workflow_gloss = repo.path().join(".github/workflows/.gloss/gloss.yml.gloss");
     let attribute_gloss_before = fs::read_to_string(&attribute_gloss).unwrap();
     let workflow_gloss_before = fs::read_to_string(&workflow_gloss).unwrap();
     let skill_paths = [
@@ -112,7 +110,7 @@ fn init_is_idempotent_and_hooks_stay_single() {
         let annotation = Path::new(skill)
             .parent()
             .unwrap()
-            .join(".annotations/SKILL.md.gloss");
+            .join(".gloss/SKILL.md.gloss");
         assert!(repo.path().join(annotation).is_file());
     }
     let codex_skill_before = fs::read_to_string(repo.path().join(skill_paths[1])).unwrap();
@@ -133,7 +131,7 @@ fn init_is_idempotent_and_hooks_stay_single() {
             "check-attr",
             "linguist-generated",
             "--",
-            "src/deep/.annotations/foo.txt.gloss",
+            "src/deep/.gloss/foo.txt.gloss",
         ])
         .current_dir(repo.path())
         .output()
@@ -173,14 +171,14 @@ fn init_is_idempotent_and_hooks_stay_single() {
         fs::read_to_string(repo.path().join(".zed/settings.json")).unwrap(),
         zed_before
     );
-    assert!(repo.path().join(".annotations/.ignore.gloss").is_file());
+    assert!(repo.path().join(".gloss/.ignore.gloss").is_file());
     assert!(repo
         .path()
-        .join(".vscode/.annotations/settings.json.gloss")
+        .join(".vscode/.gloss/settings.json.gloss")
         .is_file());
     assert!(repo
         .path()
-        .join(".zed/.annotations/settings.json.gloss")
+        .join(".zed/.gloss/settings.json.gloss")
         .is_file());
     gloss(&repo).arg("lint").assert().success();
 }
@@ -220,7 +218,7 @@ fn init_merges_editor_settings_and_preserves_existing_values() {
     let ignore = fs::read_to_string(repo.path().join(".ignore")).unwrap();
     assert!(ignore.starts_with("vendor/\n"));
     assert_eq!(ignore.matches("# gloss:start").count(), 1);
-    assert!(ignore.contains("**/.annotations/*.gloss"));
+    assert!(ignore.contains("**/.gloss/*.gloss"));
 
     let vscode: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(repo.path().join(".vscode/settings.json")).unwrap(),
@@ -229,7 +227,7 @@ fn init_merges_editor_settings_and_preserves_existing_values() {
     assert_eq!(vscode["editor.fontSize"], 15);
     assert_eq!(vscode["files.exclude"]["**/.cache"], true);
     for key in ["files.exclude", "search.exclude", "files.watcherExclude"] {
-        assert_eq!(vscode[key]["**/.annotations/**/*.gloss"], true);
+        assert_eq!(vscode[key]["**/.gloss/**/*.gloss"], true);
     }
 
     let zed: serde_json::Value =
@@ -245,7 +243,7 @@ fn init_merges_editor_settings_and_preserves_existing_values() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|value| value == "**/.annotations/**/*.gloss"));
+        .any(|value| value == "**/.gloss/**/*.gloss"));
 
     let sublime: serde_json::Value = serde_json::from_str(
         &fs::read_to_string(repo.path().join("gloss.sublime-project")).unwrap(),
@@ -284,7 +282,7 @@ fn init_preserves_zed_defaults_when_it_creates_the_exclusion_setting() {
         "**/.git",
         "**/.DS_Store",
         "**/.settings",
-        "**/.annotations/**/*.gloss",
+        "**/.gloss/**/*.gloss",
     ] {
         assert!(
             exclusions.iter().any(|value| value == expected),
@@ -298,7 +296,7 @@ fn init_refuses_conflicting_editor_settings_before_writing_setup_files() {
     let repo = Repo::new();
     repo.write(
         ".vscode/settings.json",
-        r#"{"files.exclude":{"**/.annotations/**/*.gloss":false}}
+        r#"{"files.exclude":{"**/.gloss/**/*.gloss":false}}
 "#,
     );
 
@@ -313,7 +311,7 @@ fn init_refuses_conflicting_editor_settings_before_writing_setup_files() {
     assert!(!repo.path().join(".github/workflows/gloss.yml").exists());
     assert_eq!(
         fs::read_to_string(repo.path().join(".vscode/settings.json")).unwrap(),
-        "{\"files.exclude\":{\"**/.annotations/**/*.gloss\":false}}\n"
+        "{\"files.exclude\":{\"**/.gloss/**/*.gloss\":false}}\n"
     );
 }
 
@@ -321,7 +319,7 @@ fn init_refuses_conflicting_editor_settings_before_writing_setup_files() {
 fn editor_exclusions_do_not_make_glosses_git_ignored() {
     let repo = Repo::new();
     gloss(&repo).arg("init").assert().success();
-    let annotation = ".vscode/.annotations/settings.json.gloss";
+    let annotation = ".vscode/.gloss/settings.json.gloss";
 
     let ignored = ProcessCommand::new("git")
         .args(["check-ignore", "--quiet", "--", annotation])
@@ -474,8 +472,7 @@ fn lint_fix_creates_a_header_only_gloss_for_every_touched_file() {
         .assert()
         .success();
 
-    let annotation =
-        fs::read_to_string(repo.path().join("src/.annotations/foo.txt.gloss")).unwrap();
+    let annotation = fs::read_to_string(repo.path().join("src/.gloss/foo.txt.gloss")).unwrap();
     assert!(annotation.starts_with("version: 1\nupdated: "));
     assert!(annotation.contains("\neditor: codex\n\n"));
     assert_eq!(annotation.lines().count(), 4);
@@ -499,11 +496,11 @@ fn staged_lint_requires_a_fresh_staged_gloss_and_reads_index_content() {
         .args(["lint", "--fix"])
         .assert()
         .success();
-    run_git(repo.path(), &["add", "src/.annotations/foo.txt.gloss"]);
+    run_git(repo.path(), &["add", "src/.gloss/foo.txt.gloss"]);
     gloss(&repo).args(["lint", "--staged"]).assert().success();
 
-    repo.write("src/.annotations/foo.txt.gloss", "not a gloss\n");
-    run_git(repo.path(), &["add", "src/.annotations/foo.txt.gloss"]);
+    repo.write("src/.gloss/foo.txt.gloss", "not a gloss\n");
+    run_git(repo.path(), &["add", "src/.gloss/foo.txt.gloss"]);
     gloss(&repo)
         .args(["--json", "lint", "--staged"])
         .assert()
@@ -605,7 +602,7 @@ fn update_shifts_ranges_once_when_lines_move() {
         .arg("update")
         .assert()
         .success();
-    let path = repo.path().join("src/.annotations/foo.txt.gloss");
+    let path = repo.path().join("src/.gloss/foo.txt.gloss");
     let first = fs::read_to_string(&path).unwrap();
     assert!(first.lines().any(|line| line.contains(" 3:3 ")));
     gloss(&repo)
@@ -621,7 +618,7 @@ fn update_shifts_ranges_once_when_lines_move() {
         .arg("update")
         .assert()
         .success();
-    let second = fs::read_to_string(repo.path().join("src/.annotations/foo.txt.gloss")).unwrap();
+    let second = fs::read_to_string(repo.path().join("src/.gloss/foo.txt.gloss")).unwrap();
     assert!(second.lines().any(|line| line.contains(" 4:4 ")));
 }
 
@@ -645,13 +642,13 @@ fn update_moves_and_deletes_glosses_with_sources() {
         .arg("update")
         .assert()
         .success();
-    assert!(!repo.path().join("src/.annotations/foo.txt.gloss").exists());
-    assert!(repo.path().join("lib/.annotations/foo.txt.gloss").exists());
+    assert!(!repo.path().join("src/.gloss/foo.txt.gloss").exists());
+    assert!(repo.path().join("lib/.gloss/foo.txt.gloss").exists());
 
     repo.commit_all("move source");
     run_git(repo.path(), &["rm", "lib/foo.txt"]);
     gloss(&repo).arg("update").assert().success();
-    assert!(!repo.path().join("lib/.annotations/foo.txt.gloss").exists());
+    assert!(!repo.path().join("lib/.gloss/foo.txt.gloss").exists());
 }
 
 fn head(repo: &Repo) -> String {

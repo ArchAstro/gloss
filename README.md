@@ -82,7 +82,7 @@ incompatible type, an explicit conflicting value, invalid JSON, or an edited
 Gloss ownership block, setup reports the conflict rather than guessing.
 
 ```gitattributes
-**/.annotations/*.gloss linguist-generated=true
+**/.gloss/*.gloss linguist-generated=true
 ```
 
 Commit `.gitattributes`; GitHub will exclude glosses from language statistics
@@ -129,7 +129,7 @@ Every command accepts `--json`. Failures use stable codes such as
 
 ```text
 src/foo.ex
-src/.annotations/foo.ex.gloss
+src/.gloss/foo.ex.gloss
 ```
 
 Gloss files are normal committed files. Everything in `.git/annotations/` is

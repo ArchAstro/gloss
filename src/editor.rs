@@ -4,8 +4,8 @@ use serde_json::{Map, Value};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const GLOSS_PATTERN: &str = "**/.annotations/**/*.gloss";
-const IGNORE_RULE: &str = "**/.annotations/*.gloss";
+const GLOSS_PATTERN: &str = "**/.gloss/**/*.gloss";
+const IGNORE_RULE: &str = "**/.gloss/*.gloss";
 const IGNORE_START: &str = "# gloss:start";
 const IGNORE_END: &str = "# gloss:end";
 const ZED_DEFAULTS: &[&str] = &[

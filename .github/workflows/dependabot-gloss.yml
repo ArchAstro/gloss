@@ -47,11 +47,11 @@ jobs:
           (
             cd trusted
             target/debug/gloss lint --fix --editor dependabot
-            git add -- ':(glob)**/.annotations/*.gloss'
+            git add -- ':(glob)**/.gloss/*.gloss'
           )
-          git -C trusted diff --cached --binary -- ':(glob)**/.annotations/*.gloss' |
+          git -C trusted diff --cached --binary -- ':(glob)**/.gloss/*.gloss' |
             git -C candidate apply --whitespace=nowarn
-          git -C candidate add -- ':(glob)**/.annotations/*.gloss'
+          git -C candidate add -- ':(glob)**/.gloss/*.gloss'
           if git -C candidate diff --cached --quiet; then
             echo "Gloss metadata is already current"
             exit 0
