@@ -146,6 +146,8 @@ fn init_is_idempotent_and_hooks_stay_single() {
     assert!(workflow_before.contains(
         "cargo install --git https://github.com/ArchAstro/gloss --tag v0.1.0 --locked gloss"
     ));
+    assert!(workflow_before.contains("cargo install --path . --locked"));
+    assert!(workflow_before.contains("grep -Eq '^name = \"gloss\"$' Cargo.toml"));
     assert_eq!(fs::read_to_string(workflow_path).unwrap(), workflow_before);
     assert_eq!(
         fs::read_to_string(attribute_gloss).unwrap(),
