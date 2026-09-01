@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Gloss for GitHub",
+  "version": "0.1.0",
+  "description": "Loads current-ref Gloss annotations on GitHub source pages.",
+  "host_permissions": ["https://github.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://github.com/*"],
+      "js": ["src/content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/parse.js", "src/paths.js", "src/github.js"],
+      "matches": ["https://github.com/*"]
+    }
+  ]
+}
