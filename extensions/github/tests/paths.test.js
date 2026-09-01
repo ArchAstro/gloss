@@ -10,9 +10,9 @@ test("source and gloss paths round-trip through sibling .gloss directories", () 
   assert.equal(sourceToGlossPath("README.md"), ".gloss/README.md.gloss");
   assert.equal(glossToSourcePath(".gloss/README.md.gloss"), "README.md");
   assert.equal(sourceToGlossPath("src/.gloss/foo.ex.gloss"), "src/.gloss/.gloss/foo.ex.gloss.gloss");
-  assert.equal(isGlossPath("src/.annotations/foo.ex.gloss"), false);
+  assert.equal(isGlossPath("src/.annotations/foo.ex.gloss"), true);
   assert.equal(glossToSourcePath("src/.annotations/foo.ex.gloss"), null);
-  assert.equal(classifyArtifact("src/.annotations/foo.ex.gloss"), "source");
+  assert.equal(classifyArtifact("src/.annotations/foo.ex.gloss"), "gloss");
 });
 
 test("GitHub page detection returns blob, PR files, and tree models and rejects unsupported URLs", () => {
