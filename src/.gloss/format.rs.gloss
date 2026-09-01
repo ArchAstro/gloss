@@ -1,5 +1,5 @@
 version: 1
-updated: 2026-08-29T15:59:17.171453Z
-editor: codex
+updated: 2026-09-01T01:20:38.651801Z
+editor: unknown
 
 01a04e3f-28b3-76f0-8ce3-2fa23fdd8724 212:242 2026-08-29T15:59:17.171453Z calvin codex dot_gloss_rename Make the product-named .gloss directory the sole committed metadata layout so the repository has one obvious public convention; keep .git/annotations separate because it is disposable internal provenance rather than review metadata.

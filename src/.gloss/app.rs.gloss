@@ -1,6 +1,6 @@
 version: 1
-updated: 2026-08-29T20:48:16.349306Z
-editor: codex
+updated: 2026-09-01T01:20:38.651801Z
+editor: unknown
 
 01a04ac6-704d-7bc2-b64e-81c1ac055575 471:473 2026-08-28T23:48:33.997404Z calvin codex pr_3 Route maintenance reads through Git-aware source loading so symlink adapters do not masquerade as copied skill contents.
 01a04ac6-7205-7681-a18e-99967ed7b264 757:759 2026-08-28T23:48:34.437966Z calvin codex pr_3 Record new symlink sources using their link target, keeping derived hashes stable across repeated setup runs.
