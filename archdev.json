@@ -1,0 +1,14 @@
+{
+  "app": "dap_033y70rWJriCRNyb9uL0Pm",
+  "publish": {
+    "auto": true,
+    "model": "platform/xai/grok-latest-thinking-high"
+  },
+  "factory": {
+    "model": "platform/xai/grok-latest-thinking-high"
+  },
+  "local": {
+    "project_id": "project_03d2af6c-7f16-4115-811f-d4ee61eed165",
+    "repo_name": "gloss"
+  }
+}
