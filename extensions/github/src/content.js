@@ -1,6 +1,29 @@
 (() => {
   const moduleUrl = (path) => chrome.runtime.getURL(path);
   let navigation = 0;
+  let hideArtifacts = null;
+  let hidePage = null;
+  const pendingHideRoots = new Set();
+  let hideScheduled = false;
+
+  function scheduleHide(mutations) {
+    if (!hidePage || !hideArtifacts) return;
+    for (const mutation of mutations) {
+      for (const node of mutation.addedNodes) {
+        if (node.nodeType === Node.ELEMENT_NODE) pendingHideRoots.add(node);
+      }
+    }
+    if (!hideScheduled && pendingHideRoots.size) {
+      hideScheduled = true;
+      queueMicrotask(() => {
+        hideScheduled = false;
+        if (hidePage) {
+          for (const root of pendingHideRoots) hideArtifacts(root, hidePage);
+        }
+        pendingHideRoots.clear();
+      });
+    }
+  }
 
   function findCodeLocation(value) {
     if (!value || typeof value !== "object") return null;
@@ -42,13 +65,18 @@
 
   async function boot() {
     const currentNavigation = ++navigation;
-    const [{ parseGlossFile }, { sourceToGlossPath }, { detectGitHubPage, rawGlossUrl }] = await Promise.all([
+    const [{ parseGlossFile }, { sourceToGlossPath }, { detectGitHubPage, rawGlossUrl }, hide] = await Promise.all([
       import(moduleUrl("src/parse.js")),
       import(moduleUrl("src/paths.js")),
       import(moduleUrl("src/github.js")),
+      import(moduleUrl("src/hide.js")),
     ]);
+    if (currentNavigation !== navigation) return null;
 
+    hideArtifacts = hide.hideGlossArtifacts;
     const page = detectGitHubPage(location.href, pageMetadata());
+    hidePage = page;
+    if (hidePage) hideArtifacts(document, hidePage);
     const glossPath = page?.kind === "blob" && page.path ? sourceToGlossPath(page.path) : null;
     const url = glossPath ? rawGlossUrl(page, glossPath) : null;
     const result = { page, glossPath, url, gloss: null, status: url ? "loading" : "idle" };
@@ -76,7 +104,13 @@
   }
 
   const navigate = () => void boot();
+  const leavePage = () => {
+    hidePage = null;
+  };
+  document.addEventListener("turbo:before-render", leavePage);
+  document.addEventListener("pjax:start", leavePage);
   document.addEventListener("turbo:load", navigate);
   document.addEventListener("pjax:end", navigate);
+  new MutationObserver(scheduleHide).observe(document.documentElement, { childList: true, subtree: true });
   void boot();
 })();

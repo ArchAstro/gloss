@@ -13,7 +13,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/parse.js", "src/paths.js", "src/github.js"],
+      "resources": ["src/parse.js", "src/paths.js", "src/github.js", "src/hide.js"],
       "matches": ["https://github.com/*"]
     }
   ]

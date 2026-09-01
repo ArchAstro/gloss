@@ -29,7 +29,10 @@ export function glossToSourcePath(glossPath) {
 }
 
 export function isGlossPath(path) {
-  return glossToSourcePath(path) !== null;
+  const repositoryPath = cleanRepositoryPath(path);
+  if (!repositoryPath) return false;
+  const parts = repositoryPath.split("/");
+  return parts.includes(".gloss") || parts.at(-1).endsWith(".gloss");
 }
 
 export function classifyArtifact(path) {
