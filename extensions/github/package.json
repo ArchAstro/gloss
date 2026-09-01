@@ -2,6 +2,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/parse.test.js tests/paths.test.js tests/hide.test.js"
+    "test": "node --test tests/parse.test.js tests/paths.test.js tests/hide.test.js tests/rail.test.js"
   }
 }
