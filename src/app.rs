@@ -1,6 +1,6 @@
 use crate::editor::EditorInstallPlan;
 use crate::error::{ErrorCode, GlossError, Result};
-use crate::format::{gloss_path, source_path, GlossFile, GlossRecord, LineRange};
+use crate::format::{gloss_path, source_path, GlossFile, GlossRecord, LineRange, Risk};
 use crate::git::{diff_hunks_between, ChangeScope, DiffHunk, GitRepo, LifecycleChange};
 use crate::harness::{SkillInstallPlan, SkillScope};
 use crate::state::{hash, DerivedState};
@@ -213,13 +213,15 @@ impl App {
         let edit_id = Uuid::now_v7();
         document.updated = now;
         document.editor = agent.clone();
-        document.records.push(GlossRecord {
+        document.push_record(GlossRecord {
             edit_id,
             range: range.clone(),
             timestamp: now,
             user,
             agent,
             session_id: session,
+            labels: Vec::new(),
+            risk: Risk::None,
             explanation: explanation.trim().to_owned(),
         });
         if explanation.trim().is_empty() {
@@ -388,7 +390,7 @@ impl App {
             }
             let current_line_count = source_line_count_bytes(&source_bytes);
             let hunks = self.repo.diff_hunks_in(&source, scope).unwrap_or_default();
-            for record in &document.records {
+            for record in document.records() {
                 let edit_key = record.edit_id.to_string();
                 let coordinate_line_count = range_history
                     .get(&edit_key)
@@ -573,8 +575,10 @@ impl App {
                 continue;
             }
             let gloss = gloss_path(&source)?;
-            let records = if self.repo.root().join(&gloss).exists() {
-                read_gloss(&self.repo.root().join(&gloss), &gloss)?.records
+            let records: Vec<_> = if self.repo.root().join(&gloss).exists() {
+                read_gloss(&self.repo.root().join(&gloss), &gloss)?
+                    .into_records()
+                    .collect()
             } else {
                 Vec::new()
             };
@@ -630,7 +634,7 @@ impl App {
             let records = if absolute_gloss.is_file() {
                 let mut matches = Vec::new();
                 let head_gloss = self.repo.read_file_at_ref("HEAD", &gloss);
-                for record in read_gloss(&absolute_gloss, &gloss)?.records {
+                for record in read_gloss(&absolute_gloss, &gloss)?.into_records() {
                     let edit_key = record.edit_id.to_string();
                     let range_commit = range_commits.get(&edit_key).cloned();
                     let current_ranges = match range_commit.as_deref() {
