@@ -8,6 +8,10 @@ use uuid::Uuid;
 
 pub const MIN_VERSION: u8 = 1;
 pub const CURRENT_VERSION: u8 = 2;
+/// Version that introduced the `labels` and `risk` record fields. The declared
+/// file version alone decides a row's field count, so readers never have to
+/// guess whether trailing prose is metadata.
+const LABELS_VERSION: u8 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LineRange {
@@ -186,7 +190,7 @@ impl GlossFile {
                 ));
             }
             let first = line.split_whitespace().next().unwrap_or_default();
-            if uuid_shaped(first) {
+            if record_shaped(first) {
                 body.push(GlossLine::Record(parse_record(
                     line,
                     version,
@@ -225,11 +229,14 @@ impl GlossFile {
     }
 
     pub fn render(&self) -> String {
-        let version = if self.records().any(uses_v2_fields) {
-            CURRENT_VERSION
+        // Never downgrade: a file declaring a newer version may hold opaque rows
+        // written by that version, and its rows are laid out for it.
+        let required = if self.records().any(uses_v2_fields) {
+            LABELS_VERSION
         } else {
             MIN_VERSION
         };
+        let version = self.version.max(required);
         let mut output = format!(
             "version: {version}\nupdated: {}\neditor: {}\n",
             timestamp(self.updated),
@@ -253,7 +260,7 @@ impl GlossFile {
                         record.agent,
                         record.session_id,
                     ));
-                    if uses_v2_fields(record) {
+                    if version >= LABELS_VERSION {
                         let mut labels = record.labels.clone();
                         labels.sort();
                         let labels = if labels.is_empty() {
@@ -277,22 +284,15 @@ impl GlossFile {
 }
 
 fn parse_record(line: &str, version: u8, path: &Path, line_number: usize) -> Result<GlossRecord> {
-    let candidate: Vec<&str> = line.splitn(9, char::is_whitespace).collect();
-    // Mixed-version files have no explicit per-row discriminator. A known risk
-    // identifies v2; `-` and comma-separated labels also make the intent clear
-    // enough to report a malformed risk. Otherwise prefer v1 so an explanation
-    // such as `fix the bug` is not mistaken for metadata.
-    let v2 = version >= 2
-        && candidate.len() >= 8
-        && (Risk::parse(candidate[7]).is_some()
-            || candidate[6] == "-"
-            || candidate[6].contains(','));
-    let parts: Vec<&str> = if v2 {
-        candidate
-    } else {
-        line.splitn(7, char::is_whitespace).collect()
-    };
+    // The row layout is fixed by the file's declared version, not sniffed from
+    // field contents: the trailing explanation is free-form prose and can
+    // imitate any metadata shape, so guessing per row either eats the first
+    // words of a rationale as fabricated labels/risk or rejects the record
+    // outright. `render` promotes every row when it promotes the header, so a
+    // v2 file has no v1 rows left to accommodate.
+    let v2 = version >= LABELS_VERSION;
     let expected = if v2 { 9 } else { 7 };
+    let parts: Vec<&str> = line.splitn(expected, char::is_whitespace).collect();
     if parts.len() != expected
         || parts.iter().take(expected - 1).any(|part| part.is_empty())
         || parts[expected - 1].trim().is_empty()
@@ -373,12 +373,21 @@ fn uses_v2_fields(record: &GlossRecord) -> bool {
     !record.labels.is_empty() || record.risk != Risk::None
 }
 
-fn uuid_shaped(value: &str) -> bool {
-    value.len() == 36
-        && value.char_indices().all(|(index, ch)| match index {
-            8 | 13 | 18 | 23 => ch == '-',
-            _ => ch != '-',
-        })
+/// Whether a body line's first field is an attempted record UUID.
+///
+/// Unknown line kinds are round-tripped verbatim, so this must not swallow a
+/// *corrupt* UUID: dropping such a record would turn lost provenance into a
+/// silent omission from `why` that still passes `lint`. Anything recognizable
+/// as an attempted UUID — five hyphen-separated alphanumeric groups of roughly
+/// canonical width — is handed to `parse_record`, which reports `InvalidUuid`.
+fn record_shaped(value: &str) -> bool {
+    const CANONICAL_LEN: usize = 36;
+    let groups: Vec<&str> = value.split('-').collect();
+    groups.len() == 5
+        && value.len().abs_diff(CANONICAL_LEN) <= 4
+        && groups
+            .iter()
+            .all(|group| !group.is_empty() && group.chars().all(|ch| ch.is_ascii_alphanumeric()))
 }
 
 pub fn gloss_path(source: &Path) -> Result<PathBuf> {
@@ -447,6 +456,15 @@ mod tests {
     const V1_RECORD: &str = "0198f5cf-4807-7ac3-a42a-938ff9b78220 42:58 2026-08-28T18:41:53Z calvin codex sess_123 Explain the intent.";
     const V2_RECORD: &str = "0198f5cf-4807-7ac3-a42a-938ff9b78221 1:2 2026-08-28T18:41:54Z calvin codex sess_456 z-label,a-label high Risky change.";
 
+    /// The explanation is free-form prose, so it can imitate every metadata
+    /// shape the old per-row sniffing keyed off: a word that parses as a risk
+    /// in the risk position, an embedded comma, and a leading bare `-`.
+    const METADATA_LOOKALIKES: [&str; 3] = [
+        "compute high water marks lazily because the source is streamed.",
+        "Parsing, validation, and lint stay separate.",
+        "- none of the callers depend on ordering.",
+    ];
+
     fn file(version: u8, body: &str) -> String {
         format!("version: {version}\nupdated: 2026-08-28T18:42:11Z\neditor: codex\n\n{body}\n")
     }
@@ -473,7 +491,7 @@ mod tests {
             );
         }
         GlossFile::parse(&file(1, V1_RECORD), Path::new("foo.gloss")).unwrap();
-        GlossFile::parse(&file(2, V1_RECORD), Path::new("foo.gloss")).unwrap();
+        GlossFile::parse(&file(2, V2_RECORD), Path::new("foo.gloss")).unwrap();
     }
 
     #[test]
@@ -500,43 +518,108 @@ mod tests {
     }
 
     #[test]
-    fn parses_mixed_v1_and_v2_records() {
-        let v1_with_metadata_like_explanation = V1_RECORD.replace(
-            "Explain the intent.",
-            "fix the bug without treating the explanation as metadata.",
-        );
+    fn explanations_that_imitate_metadata_survive_both_versions() {
+        for prose in METADATA_LOOKALIKES {
+            let v1 = file(1, &V1_RECORD.replace("Explain the intent.", prose));
+            let parsed = GlossFile::parse(&v1, Path::new("foo.gloss")).unwrap();
+            let record = parsed.records().next().unwrap();
+            assert_eq!(record.explanation, prose, "v1 explanation was rewritten");
+            assert!(record.labels.is_empty(), "v1 gained fabricated labels");
+            assert_eq!(record.risk, Risk::None, "v1 gained a fabricated risk");
+            assert_eq!(parsed.render(), v1);
+
+            let v2 = file(2, &V2_RECORD.replace("Risky change.", prose));
+            let parsed = GlossFile::parse(&v2, Path::new("foo.gloss")).unwrap();
+            let record = parsed.records().next().unwrap();
+            assert_eq!(record.explanation, prose, "v2 explanation was rewritten");
+            assert_eq!(record.labels, ["z-label", "a-label"]);
+            assert_eq!(record.risk, Risk::High);
+        }
+    }
+
+    /// Promoting the header must promote every row with it, so a file never
+    /// declares v2 while carrying rows a v2 reader would misparse.
+    #[test]
+    fn adding_a_labeled_record_promotes_every_row_and_stays_readable() {
         let input = file(
-            2,
-            &format!("{v1_with_metadata_like_explanation}\n{V2_RECORD}"),
+            1,
+            &format!(
+                "{}\n{}",
+                V1_RECORD.replace("Explain the intent.", METADATA_LOOKALIKES[0]),
+                V1_RECORD
+                    .replace("938ff9b78220", "938ff9b7822a")
+                    .replace("Explain the intent.", METADATA_LOOKALIKES[1]),
+            ),
         );
-        let parsed = GlossFile::parse(&input, Path::new("foo.gloss")).unwrap();
-        let records: Vec<_> = parsed.records().collect();
-        assert_eq!(records.len(), 2);
-        assert!(records[0].labels.is_empty());
-        assert_eq!(records[0].risk, Risk::None);
-        assert_eq!(
-            records[0].explanation,
-            "fix the bug without treating the explanation as metadata."
-        );
+        let mut parsed = GlossFile::parse(&input, Path::new("foo.gloss")).unwrap();
+        parsed.push_record(GlossRecord {
+            edit_id: Uuid::parse_str("0198f5cf-4807-7ac3-a42a-938ff9b78222").unwrap(),
+            range: LineRange::new(60, 61).unwrap(),
+            timestamp: "2026-08-28T18:41:55Z".parse().unwrap(),
+            user: "calvin".to_owned(),
+            agent: "codex".to_owned(),
+            session_id: "sess_789".to_owned(),
+            labels: vec!["security".to_owned()],
+            risk: Risk::High,
+            explanation: "New labeled record.".to_owned(),
+        });
         let rendered = parsed.render();
-        assert!(rendered.contains(&format!("{v1_with_metadata_like_explanation}\n")));
-        assert!(rendered.contains("a-label,z-label high Risky change."));
+        assert!(rendered.starts_with("version: 2\n"), "{rendered}");
+
+        let reparsed = GlossFile::parse(&rendered, Path::new("foo.gloss")).unwrap();
+        let records: Vec<_> = reparsed.records().collect();
+        assert_eq!(records.len(), 3);
+        assert_eq!(records[0].explanation, METADATA_LOOKALIKES[0]);
+        assert_eq!(records[1].explanation, METADATA_LOOKALIKES[1]);
+        assert_eq!(records[2].explanation, "New labeled record.");
+        for record in &records[..2] {
+            assert!(record.labels.is_empty());
+            assert_eq!(record.risk, Risk::None);
+        }
+        assert_eq!(records[2].labels, ["security"]);
+        assert_eq!(records[2].risk, Risk::High);
+        assert_eq!(reparsed.render(), rendered, "promotion is not idempotent");
     }
 
     #[test]
-    fn default_v2_fields_render_as_v1() {
+    fn row_layout_follows_the_declared_version() {
+        assert_eq!(
+            GlossFile::parse(&file(2, V1_RECORD), Path::new("foo.gloss"))
+                .unwrap_err()
+                .code,
+            ErrorCode::InvalidFormat
+        );
+        assert_eq!(
+            GlossFile::parse(&file(1, V2_RECORD), Path::new("foo.gloss"))
+                .unwrap()
+                .records()
+                .next()
+                .unwrap()
+                .explanation,
+            "z-label,a-label high Risky change."
+        );
+    }
+
+    #[test]
+    fn render_never_downgrades_the_declared_version() {
+        let input =
+            "version: 2\nupdated: 2026-08-28T18:42:11Z\neditor: codex\n\nfuture-record payload\n";
+        let parsed = GlossFile::parse(input, Path::new("foo.gloss")).unwrap();
+        assert_eq!(parsed.version, 2);
+        assert_eq!(parsed.render(), input);
+    }
+
+    #[test]
+    fn default_v2_fields_round_trip_without_downgrading() {
         let input = file(
             2,
             "0198f5cf-4807-7ac3-a42a-938ff9b78221 1:2 2026-08-28T18:41:54Z calvin codex sess_456 - none Default fields.",
         );
         let parsed = GlossFile::parse(&input, Path::new("foo.gloss")).unwrap();
-        assert_eq!(
-            parsed.render(),
-            file(
-                1,
-                "0198f5cf-4807-7ac3-a42a-938ff9b78221 1:2 2026-08-28T18:41:54Z calvin codex sess_456 Default fields."
-            )
-        );
+        let record = parsed.records().next().unwrap();
+        assert!(record.labels.is_empty());
+        assert_eq!(record.risk, Risk::None);
+        assert_eq!(parsed.render(), input);
     }
 
     #[test]
@@ -579,6 +662,48 @@ mod tests {
             .code,
             ErrorCode::InvalidFormat
         );
+    }
+
+    /// Corrupt provenance must stay a loud parse error. Filing these rows as
+    /// opaque would drop them from `why` while `lint` still passed clean.
+    #[test]
+    fn rejects_corrupt_uuids_instead_of_filing_them_as_opaque() {
+        for broken in [
+            "0198f5cf-4807-7ac3-a42a-938ff9b7822",
+            "0198f5cf-4807-7ac3-a42a-938ff9b782200",
+            "0198f5cf-4807-7ac3-a42-938ff9b78220",
+            "0198f5cg-4807-7ac3-a42a-938ff9b78220",
+        ] {
+            let input = file(
+                1,
+                &V1_RECORD.replace("0198f5cf-4807-7ac3-a42a-938ff9b78220", broken),
+            );
+            assert_eq!(
+                GlossFile::parse(&input, Path::new("foo.gloss"))
+                    .unwrap_err()
+                    .code,
+                ErrorCode::InvalidUuid,
+                "{broken} was not rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn still_round_trips_lines_that_are_not_record_shaped() {
+        for opaque in [
+            "future-record payload",
+            "other-kind payload",
+            "a-b-c-d 1:2 payload",
+        ] {
+            let input = file(1, &format!("{opaque}\n{V1_RECORD}"));
+            let parsed = GlossFile::parse(&input, Path::new("foo.gloss")).unwrap();
+            assert_eq!(
+                parsed.records().count(),
+                1,
+                "{opaque} was parsed as a record"
+            );
+            assert_eq!(parsed.render(), input);
+        }
     }
 
     #[test]

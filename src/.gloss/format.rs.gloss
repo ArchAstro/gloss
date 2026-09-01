@@ -1,5 +1,8 @@
 version: 1
-updated: 2026-09-01T01:20:38.651801Z
-editor: unknown
+updated: 2026-09-01T01:42:39.056131Z
+editor: codex
 
 01a04e3f-28b3-76f0-8ce3-2fa23fdd8724 212:242 2026-08-29T15:59:17.171453Z calvin codex dot_gloss_rename Make the product-named .gloss directory the sole committed metadata layout so the repository has one obvious public convention; keep .git/annotations separate because it is disposable internal provenance rather than review metadata.
+01a05aa1-d7a0-7863-b1db-7ee365d9ce41 286:296 2026-09-01T01:42:31.072088Z calvin codex review_fixes Key the record field count to the declared file version instead of sniffing field contents, because the trailing explanation is free-form prose that can imitate any metadata shape: sniffing ate the first words of a rationale as fabricated labels and risk, or rejected the record outright and left the file unreadable.
+01a05aa1-f59a-70b2-8da4-7a0c51d4e8c0 376:390 2026-09-01T01:42:38.746797Z calvin codex review_fixes Hand any line whose first field is a recognizable UUID attempt to the record parser so a corrupt id stays a loud InvalidUuid error; filing it as an opaque line would drop the record from why while lint still passed clean, turning damaged provenance into silent data loss.
+01a05aa1-f6d0-75f3-b799-7bd2d61b1f07 231:240 2026-09-01T01:42:39.056131Z calvin codex review_fixes Render the maximum of the declared and required version so a file never downgrades below the schema it was written for, since opaque rows from a newer writer are laid out for that version.
