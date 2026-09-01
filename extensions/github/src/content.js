@@ -5,6 +5,7 @@
   let hidePage = null;
   const pendingHideRoots = new Set();
   let hideScheduled = false;
+  let cleanup = () => {};
 
   function scheduleHide(mutations) {
     if (!hidePage || !hideArtifacts) return;
@@ -63,13 +64,70 @@
     };
   }
 
+  async function fetchGloss(page, sourcePath, parseGlossFile, sourceToGlossPath, rawGlossUrl) {
+    const glossPath = sourceToGlossPath(sourcePath);
+    const url = glossPath ? rawGlossUrl(page, glossPath) : null;
+    if (!url) return { glossPath, url, gloss: null, status: "idle" };
+    try {
+      const response = await fetch(url, { credentials: "include" });
+      if (response.status === 404) return { glossPath, url, gloss: null, status: "missing" };
+      if (!response.ok) throw new Error(`Gloss fetch failed with HTTP ${response.status}`);
+      return { glossPath, url, gloss: parseGlossFile(await response.text()), status: "loaded" };
+    } catch (error) {
+      return {
+        glossPath,
+        url,
+        gloss: null,
+        status: "error",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  function filePath(root) {
+    const direct = root.dataset.path ?? root.dataset.filePath ?? root.dataset.tagsearchPath;
+    if (direct) return direct.replace(/^\/+/u, "");
+    const pathElement = root.querySelector("[data-path], [data-file-path], [data-tagsearch-path]");
+    const nested = pathElement?.dataset.path ?? pathElement?.dataset.filePath ?? pathElement?.dataset.tagsearchPath;
+    if (nested) return nested.replace(/^\/+/u, "");
+    const clipboard = root.querySelector('[data-copy-feedback="Copied!"], clipboard-copy[value]');
+    return clipboard?.getAttribute("value")?.replace(/^\/+/u, "") ?? null;
+  }
+
+  function pullFiles() {
+    const candidates = document.querySelectorAll(
+      ".js-file, [data-file-path], [data-tagsearch-path], [data-testid^=diff-file]",
+    );
+    const seen = new Set();
+    return [...candidates].flatMap((root) => {
+      const path = filePath(root);
+      if (!path || seen.has(path) || !root.querySelector("[data-line-number], .blob-num")) return [];
+      seen.add(path);
+      return [{ root, path }];
+    });
+  }
+
+  function blobRoot() {
+    return document.querySelector("[data-testid=code-viewer-container], .blob-wrapper, table.highlight")
+      ?? document.querySelector("[data-line-number], td[id^=L]")?.closest("table, main");
+  }
+
   async function boot() {
+    cleanup();
+    cleanup = () => {};
     const currentNavigation = ++navigation;
-    const [{ parseGlossFile }, { sourceToGlossPath }, { detectGitHubPage, rawGlossUrl }, hide] = await Promise.all([
+    const [
+      { parseGlossFile },
+      { sourceToGlossPath },
+      { detectGitHubPage, rawGlossUrl },
+      hide,
+      { renderRail },
+    ] = await Promise.all([
       import(moduleUrl("src/parse.js")),
       import(moduleUrl("src/paths.js")),
       import(moduleUrl("src/github.js")),
       import(moduleUrl("src/hide.js")),
+      import(moduleUrl("src/rail.js")),
     ]);
     if (currentNavigation !== navigation) return null;
 
@@ -77,29 +135,44 @@
     const page = detectGitHubPage(location.href, pageMetadata());
     hidePage = page;
     if (hidePage) hideArtifacts(document, hidePage);
-    const glossPath = page?.kind === "blob" && page.path ? sourceToGlossPath(page.path) : null;
-    const url = glossPath ? rawGlossUrl(page, glossPath) : null;
-    const result = { page, glossPath, url, gloss: null, status: url ? "loading" : "idle" };
+    const files = page?.kind === "blob" && page.path
+      ? [{ root: blobRoot(), path: page.path, side: "blob" }]
+      : page?.kind === "pull-files" ? pullFiles().map((file) => ({ ...file, side: "right" })) : [];
+    const result = { page, files: [], status: files.length ? "loading" : "idle" };
     globalThis.__glossGitHub = result;
+    if (!files.length) return result;
 
-    if (!url) return result;
-    try {
-      const response = await fetch(url, { credentials: "include" });
-      if (currentNavigation !== navigation) return result;
-      if (response.status === 404) {
-        result.status = "missing";
-      } else if (!response.ok) {
-        throw new Error(`Gloss fetch failed with HTTP ${response.status}`);
-      } else {
-        result.gloss = parseGlossFile(await response.text());
-        result.status = "loaded";
-      }
-    } catch (error) {
-      if (currentNavigation === navigation) {
-        result.status = "error";
-        result.error = error instanceof Error ? error.message : String(error);
-      }
-    }
+    const fetched = await Promise.all(files.map(async (file) => ({
+      ...file,
+      ...(await fetchGloss(page, file.path, parseGlossFile, sourceToGlossPath, rawGlossUrl)),
+    })));
+    if (currentNavigation !== navigation) return result;
+
+    const rails = fetched.flatMap((file) => {
+      result.files.push({ path: file.path, glossPath: file.glossPath, url: file.url, gloss: file.gloss, status: file.status });
+      if (!file.root || file.status !== "loaded" || !file.gloss.records.length) return [];
+      const rail = renderRail({ root: file.root, records: file.gloss.records, side: file.side });
+      return rail ? [rail] : [];
+    });
+    result.status = fetched.some((file) => file.status === "error") ? "error" : "loaded";
+
+    let frame = 0;
+    const update = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        for (const rail of rails) rail.update();
+      });
+    };
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    cleanup = () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      for (const rail of rails) rail.destroy();
+      for (const row of document.querySelectorAll(".gloss-line-highlight")) row.classList.remove("gloss-line-highlight");
+    };
     return result;
   }
 

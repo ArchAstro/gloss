@@ -88,6 +88,26 @@ Gloss ownership block, setup reports the conflict rather than guessing.
 Commit `.gitattributes`; GitHub will exclude glosses from language statistics
 and collapse them as generated files in pull-request diffs.
 
+## GitHub Chrome extension
+
+Load the extension directly from this checkout:
+
+1. Open `chrome://extensions` in Chrome.
+2. Turn on **Developer mode**.
+3. Choose **Load unpacked** and select `extensions/github`.
+4. Open a source-file blob or a pull request’s **Files changed** tab on `github.com`.
+
+The extension reads committed sibling `.gloss` files with your existing GitHub
+credentials. It shows each Gloss entry as its own card in a right-side rail,
+aligned to the entry’s source range. Cards include the explanation, agent,
+user, range, and labels; `risk=high` gets a distinct high-risk mark. Focusing or
+clicking a card scrolls to and highlights its range.
+
+On pull requests, cards use the head commit and right/new-file line numbers;
+deleted-only lines are not annotated. Header-only and missing gloss files show
+nothing. The extension does not add GitHub review threads, write comments, or
+show an error toast for missing glosses.
+
 ## Use
 
 ```fish

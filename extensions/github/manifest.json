@@ -8,12 +8,13 @@
     {
       "matches": ["https://github.com/*"],
       "js": ["src/content.js"],
+      "css": ["src/styles.css"],
       "run_at": "document_idle"
     }
   ],
   "web_accessible_resources": [
     {
-      "resources": ["src/parse.js", "src/paths.js", "src/github.js", "src/hide.js"],
+      "resources": ["src/parse.js", "src/paths.js", "src/github.js", "src/hide.js", "src/rail.js"],
       "matches": ["https://github.com/*"]
     }
   ]
