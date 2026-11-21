@@ -23,6 +23,8 @@ pub struct AddOptions {
     pub user: Option<String>,
     pub agent: Option<String>,
     pub session: Option<String>,
+    pub labels: Vec<String>,
+    pub risk: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -159,6 +161,18 @@ impl App {
         explanation: &str,
         options: AddOptions,
     ) -> Result<CommandOutput> {
+        let labels = crate::format::parse_label_list(&options.labels).ok_or_else(|| {
+            GlossError::new(
+                ErrorCode::InvalidFormat,
+                "labels must be unique kebab-case tokens (`--label` may be repeated)",
+            )
+        })?;
+        let risk = Risk::parse(options.risk.as_deref().unwrap_or("none")).ok_or_else(|| {
+            GlossError::new(
+                ErrorCode::InvalidFormat,
+                "risk must be none, low, medium, or high",
+            )
+        })?;
         let source = self.repo.relative(file)?;
         let absolute = self.repo.root().join(&source);
         if !absolute.is_file() {
@@ -220,8 +234,8 @@ impl App {
             user,
             agent,
             session_id: session,
-            labels: Vec::new(),
-            risk: Risk::None,
+            labels,
+            risk,
             explanation: explanation.trim().to_owned(),
         });
         if explanation.trim().is_empty() {
@@ -711,6 +725,8 @@ impl App {
                         "user": record.user,
                         "agent": record.agent,
                         "session_id": record.session_id,
+                        "labels": record.labels,
+                        "risk": record.risk,
                         "explanation": record.explanation,
                     })
                 })

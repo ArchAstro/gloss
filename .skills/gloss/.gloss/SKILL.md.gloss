@@ -1,6 +1,7 @@
 version: 1
-updated: 2026-08-29T20:25:04.959464Z
+updated: 2026-11-21T19:30:12.500452443Z
 editor: codex
 
 01a04ad4-51df-75e0-a332-8417aef9abcd 10:91 2026-08-29T00:03:43.711334Z calvin codex pr_3 Require each record to name the decision and its concrete reason because Gloss is review input, while the reviewer-question gate prevents annotation quotas from filling diffs with mechanical narration.
 01a04f18-3048-7fe0-bf92-a746e40732a9 93:137 2026-08-29T19:56:20.424918Z calvin codex why_skill Consult Gloss at decision points where prior intent could change the outcome, while treating matches as context rather than authority and empty results as absence of overlapping metadata rather than evidence that no constraint exists.
+01a1ff96-7394-7a90-be64-4af9292a2271 139:167 2026-11-21T19:30:12.500452443Z calvin codex tsk_034GtF723ZapO5j3sOjblK Require an explicit --risk high mark for auth, privacy, migration, boundary, billing, and concurrency decisions, and forbid inferring that risk from the diff, because reviewers need a triage signal the tool will not invent and omitting the flag must not keep a high-risk decision on a v1 row.
