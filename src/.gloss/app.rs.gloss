@@ -1,6 +1,6 @@
 version: 1
-updated: 2026-09-01T01:20:38.651801Z
-editor: unknown
+updated: 2026-11-21T19:30:12.435534483Z
+editor: codex
 
 01a04ac6-704d-7bc2-b64e-81c1ac055575 471:473 2026-08-28T23:48:33.997404Z calvin codex pr_3 Route maintenance reads through Git-aware source loading so symlink adapters do not masquerade as copied skill contents.
 01a04ac6-7205-7681-a18e-99967ed7b264 757:759 2026-08-28T23:48:34.437966Z calvin codex pr_3 Record new symlink sources using their link target, keeping derived hashes stable across repeated setup runs.
@@ -8,3 +8,4 @@ editor: unknown
 01a04e42-c8ce-76f0-bcf0-c74617221e3f 643:649 2026-08-29T16:03:14.766792Z calvin codex dot_gloss_bootstrap Let Gloss validate its own breaking format changes with the checked-out CLI while keeping consumer repositories reproducible on the pinned release; otherwise the previous release rejects the new layout before it can merge.
 01a04f06-1d89-7a11-b74b-7a10b09b9884 620:645 2026-08-29T19:36:35.977559Z calvin codex why_command Match only inclusive overlaps against ranges currently stored in each sibling gloss because this first query surface must be predictable and read-only; historical range reconstruction and provenance inference can be added later without changing the input contract.
 01a04f30-78e5-7720-a26f-6eef9bc70105 621:733 2026-08-29T20:22:51.877644Z calvin codex historical_why Resolve each stored range from the latest commit that serialized that range—not the UUID's first commit—because maintenance may change source coordinates without changing logical edit identity; projecting that revision into the working tree keeps records immutable while connecting them to current code.
+01a1ff96-7353-79f1-9844-fbf75da58ea9 164:175 2026-11-21T19:30:12.435534483Z calvin codex tsk_034GtF723ZapO5j3sOjblK Validate labels and risk with the shared format parsers and leave version selection to render, because a second rule would drift from file parsing and writing those fields on every add would promote v1 rows whose explanations imitate metadata; omitted labels and risk none therefore stay on the v1 layout.

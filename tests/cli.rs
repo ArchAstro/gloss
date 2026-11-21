@@ -551,6 +551,293 @@ fn add_rejects_ranges_outside_a_real_hunk() {
 }
 
 #[test]
+fn add_with_labels_and_risk_writes_v2_record() {
+    let repo = Repo::new();
+    repo.write("src/foo.txt", "one\ntwo\nthree\n");
+    repo.write("src/risk.txt", "one\ntwo\nthree\n");
+    repo.commit_all("baseline");
+    repo.write("src/foo.txt", "one\nchanged\nthree\n");
+    repo.write("src/risk.txt", "one\nrisk only\nlow risk\n");
+
+    for args in [
+        vec!["--label", "security", "--label", "security"],
+        vec!["--label", "Not_Kebab"],
+        vec!["--label", "-"],
+        vec!["--risk", "critical"],
+        vec!["--risk", "High"],
+    ] {
+        let mut command = gloss(&repo);
+        command.args(["--json", "add"]);
+        command.args(args);
+        command
+            .args(["src/foo.txt", "2:2", "Rejected metadata."])
+            .assert()
+            .failure()
+            .stdout(predicate::str::contains("\"code\": \"invalid_format\""));
+    }
+    assert!(
+        !repo.path().join("src/.gloss/foo.txt.gloss").exists(),
+        "rejected add wrote a gloss file"
+    );
+
+    gloss(&repo)
+        .env("GLOSS_USER", "calvin")
+        .env("GLOSS_AGENT", "codex")
+        .env("GLOSS_SESSION", "sess_v2")
+        .args([
+            "add",
+            "--label",
+            "z-label",
+            "--label",
+            "a-label",
+            "--risk",
+            "high",
+            "src/foo.txt",
+            "2:2",
+            "Risky change.",
+        ])
+        .assert()
+        .success();
+    let labeled = fs::read_to_string(repo.path().join("src/.gloss/foo.txt.gloss")).unwrap();
+    assert!(labeled.starts_with("version: 2\n"), "{labeled}");
+    assert!(
+        labeled.contains(" a-label,z-label high Risky change."),
+        "{labeled}"
+    );
+    assert!(
+        !labeled.contains("z-label,a-label"),
+        "labels were not stored in canonical order: {labeled}"
+    );
+
+    gloss(&repo)
+        .env("GLOSS_USER", "calvin")
+        .args([
+            "add",
+            "--risk",
+            "medium",
+            "src/risk.txt",
+            "2:2",
+            "Risk without labels.",
+        ])
+        .assert()
+        .success();
+    let risk_only = fs::read_to_string(repo.path().join("src/.gloss/risk.txt.gloss")).unwrap();
+    assert!(risk_only.starts_with("version: 2\n"), "{risk_only}");
+    assert!(
+        risk_only.contains(" - medium Risk without labels."),
+        "{risk_only}"
+    );
+    gloss(&repo)
+        .env("GLOSS_USER", "calvin")
+        .args([
+            "add",
+            "--risk",
+            "low",
+            "src/risk.txt",
+            "3:3",
+            "Low risk stays v2.",
+        ])
+        .assert()
+        .success();
+    let risk_only = fs::read_to_string(repo.path().join("src/.gloss/risk.txt.gloss")).unwrap();
+    assert!(risk_only.starts_with("version: 2\n"), "{risk_only}");
+    assert!(
+        risk_only.contains(" - low Low risk stays v2."),
+        "{risk_only}"
+    );
+    gloss(&repo).arg("lint").assert().success();
+}
+
+#[test]
+fn unlabeled_none_risk_add_stays_v1() {
+    let repo = Repo::new();
+    repo.write("src/foo.txt", "one\ntwo\nthree\nfour\n");
+    repo.commit_all("baseline");
+    repo.write("src/foo.txt", "one\nchanged\nthree\nchanged four\n");
+
+    gloss(&repo)
+        .env("GLOSS_USER", "calvin")
+        .env("GLOSS_AGENT", "codex")
+        .env("GLOSS_SESSION", "sess_v1")
+        .args(["add", "src/foo.txt", "2:2", "Keep the v1 layout."])
+        .assert()
+        .success();
+    gloss(&repo)
+        .env("GLOSS_USER", "calvin")
+        .args([
+            "add",
+            "--risk",
+            "none",
+            "src/foo.txt",
+            "4:4",
+            "Explicit none stays v1.",
+        ])
+        .assert()
+        .success();
+
+    let annotation = fs::read_to_string(repo.path().join("src/.gloss/foo.txt.gloss")).unwrap();
+    assert!(annotation.starts_with("version: 1\n"), "{annotation}");
+    assert!(
+        !annotation.contains(" - none "),
+        "unlabeled none was promoted to v2: {annotation}"
+    );
+    assert!(
+        annotation.contains(" Keep the v1 layout.\n"),
+        "{annotation}"
+    );
+    assert!(
+        annotation.contains(" Explicit none stays v1.\n"),
+        "{annotation}"
+    );
+
+    let output = gloss(&repo)
+        .args(["--json", "why", "src/foo.txt:2", "src/foo.txt:4"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    for annotation in json["queries"].as_array().unwrap() {
+        let record = &annotation["annotations"][0];
+        assert_eq!(record["labels"], serde_json::json!([]));
+        assert_eq!(record["risk"], "none");
+    }
+}
+
+#[test]
+fn lint_rejects_invalid_v2_metadata() {
+    let repo = Repo::new();
+    repo.write("src/foo.txt", "one\ntwo\n");
+    repo.commit_all("baseline");
+    repo.write("src/foo.txt", "one\nchanged\n");
+    gloss(&repo)
+        .args([
+            "add",
+            "--label",
+            "security",
+            "--risk",
+            "high",
+            "src/foo.txt",
+            "2:2",
+            "Valid v2 record.",
+        ])
+        .assert()
+        .success();
+    gloss(&repo).arg("lint").assert().success();
+
+    let path = repo.path().join("src/.gloss/foo.txt.gloss");
+    let valid = fs::read_to_string(&path).unwrap();
+    for bad in [
+        valid.replace("security high", "security,security high"),
+        valid.replace("security high", "not_kebab high"),
+        valid.replace("security high", "security critical"),
+        valid.replace("security high", "security"),
+    ] {
+        fs::write(&path, &bad).unwrap();
+        gloss(&repo)
+            .args(["--json", "lint"])
+            .assert()
+            .failure()
+            .stdout(predicate::str::contains("\"code\": \"invalid_format\""));
+    }
+    fs::write(&path, &valid).unwrap();
+    gloss(&repo).arg("lint").assert().success();
+}
+
+#[test]
+fn update_preserves_opaque_body_line() {
+    let repo = Repo::new();
+    repo.write("src/v2.txt", "one\ntwo\n");
+    repo.write("src/v1.txt", "one\ntwo\n");
+    repo.commit_all("baseline");
+    repo.write("src/v2.txt", "one\nchanged\n");
+    repo.write("src/v1.txt", "one\nchanged\n");
+    gloss(&repo)
+        .env("GLOSS_AGENT", "codex")
+        .args([
+            "add",
+            "--label",
+            "security",
+            "--risk",
+            "high",
+            "src/v2.txt",
+            "2:2",
+            "compute high water marks lazily.",
+        ])
+        .assert()
+        .success();
+    gloss(&repo)
+        .env("GLOSS_AGENT", "codex")
+        .args(["add", "src/v1.txt", "2:2", "Keep the v1 row intact."])
+        .assert()
+        .success();
+
+    let opaque = "future-record payload";
+    for relative in ["src/.gloss/v2.txt.gloss", "src/.gloss/v1.txt.gloss"] {
+        let path = repo.path().join(relative);
+        let text = fs::read_to_string(&path).unwrap();
+        let (header, body) = text.split_once("\n\n").unwrap();
+        fs::write(&path, format!("{header}\n\n{opaque}\n{body}")).unwrap();
+    }
+
+    repo.write("src/v2.txt", "one\nchanged again\n");
+    repo.write("src/v1.txt", "one\nchanged again\n");
+    gloss(&repo)
+        .env("GLOSS_AGENT", "codex")
+        .arg("update")
+        .assert()
+        .success();
+
+    let v2 = fs::read_to_string(repo.path().join("src/.gloss/v2.txt.gloss")).unwrap();
+    assert!(v2.starts_with("version: 2\n"), "{v2}");
+    assert!(v2.contains(&format!("\n{opaque}\n")), "{v2}");
+    assert!(
+        v2.contains(" security high compute high water marks lazily.\n"),
+        "declared v2 fields were reinterpreted: {v2}"
+    );
+    let v1 = fs::read_to_string(repo.path().join("src/.gloss/v1.txt.gloss")).unwrap();
+    assert!(v1.starts_with("version: 1\n"), "{v1}");
+    assert!(v1.contains(&format!("\n{opaque}\n")), "{v1}");
+    assert!(v1.contains(" Keep the v1 row intact.\n"), "{v1}");
+    assert!(!v1.contains(" - none "), "update promoted a v1 file: {v1}");
+}
+
+#[test]
+fn skill_and_readme_document_high_risk_annotation_policy() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let skill = fs::read_to_string(root.join(".skills/gloss/SKILL.md")).unwrap();
+    let readme = fs::read_to_string(root.join("README.md")).unwrap();
+    for document in [&skill, &readme] {
+        let document = document.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            document.contains("`--label`"),
+            "missing repeatable label flag"
+        );
+        assert!(
+            document.contains("unique kebab-case"),
+            "missing kebab-case label rule"
+        );
+        assert!(document.contains("`--risk high`"), "missing high-risk flag");
+        assert!(
+            document.contains("Do not infer risk"),
+            "missing no-inference rule"
+        );
+        assert!(document.contains("credentials"), "missing credential rule");
+        assert!(
+            document.contains("security boundary") || document.contains("security-boundary"),
+            "missing security-boundary rule"
+        );
+    }
+    assert!(
+        skill.contains("gloss --json why"),
+        "skill must point agents at why JSON labels and risk"
+    );
+    assert!(
+        readme.contains("`labels`") && readme.contains("`risk`"),
+        "README must document why JSON labels and risk"
+    );
+}
+
+#[test]
 fn add_status_lint_and_history_rebuild_work_end_to_end() {
     let repo = Repo::new();
     repo.write("src/foo.txt", "one\ntwo\nthree\n");
@@ -601,6 +888,12 @@ fn why_returns_overlapping_annotations_for_multiple_locations() {
         .env("GLOSS_SESSION", "sess_why")
         .args([
             "add",
+            "--label",
+            "z-label",
+            "--label",
+            "a-label",
+            "--risk",
+            "high",
             "src/foo.txt",
             "2:2",
             "Keep the first decision visible.",
@@ -650,11 +943,21 @@ fn why_returns_overlapping_annotations_for_multiple_locations() {
         json["queries"][0]["annotations"][0]["explanation"],
         "Keep the first decision visible."
     );
+    assert_eq!(
+        json["queries"][0]["annotations"][0]["labels"],
+        serde_json::json!(["a-label", "z-label"])
+    );
+    assert_eq!(json["queries"][0]["annotations"][0]["risk"], "high");
     assert_eq!(json["queries"][1]["range"], serde_json::json!([4, 5]));
     assert_eq!(
         json["queries"][1]["annotations"][0]["explanation"],
         "Keep the second decision visible."
     );
+    assert_eq!(
+        json["queries"][1]["annotations"][0]["labels"],
+        serde_json::json!([])
+    );
+    assert_eq!(json["queries"][1]["annotations"][0]["risk"], "none");
     assert!(json["queries"][2]["annotations"]
         .as_array()
         .unwrap()

@@ -1,6 +1,6 @@
 ---
 name: gloss
-description: Retrieve existing design rationale with `gloss why` before reviewing, explaining, debugging, or changing unfamiliar or non-obvious code, and capture review-relevant reasoning for new source edits. Use in Gloss-configured repositories for important decisions, constraints, alternatives, local rules or idioms, and Gloss metadata maintenance. Skip annotations that only narrate obvious or mechanical changes.
+description: Retrieve existing design rationale with `gloss why` before reviewing, explaining, debugging, or changing unfamiliar or non-obvious code, and capture review-relevant reasoning for new source edits. Use in Gloss-configured repositories for important decisions, constraints, alternatives, local rules or idioms, and Gloss metadata maintenance. Skip annotations that only narrate obvious or mechanical changes. Set `--risk high` and topic labels for high-risk decisions; do not infer risk from the diff.
 metadata:
   managed-by: gloss
 ---
@@ -136,6 +136,35 @@ Interpret results carefully:
 Do not run `why` indiscriminately over mechanical edits or unrelated files.
 Choose locations where prior rationale could materially affect the decision.
 
+## Labels and risk
+
+Set review metadata on `gloss add` from the decision you are recording.
+Do not infer risk from the diff, file names, or surrounding code. Gloss does
+not assign risk for you.
+
+Repeat `--label` once per topic. Each label must be a unique kebab-case token:
+lowercase letters, digits, and hyphens, with no empty segment. `--risk` is
+`none` (the default), `low`, `medium`, or `high`. Omit both when the decision
+has no triage metadata; that record stays on the v1 layout. Any label, or a
+risk other than `none`, writes v2.
+
+Set `--risk high`, and repeat `--label` for each topic that applies, when the
+decision changes any of:
+
+1. Authentication, authorization, credentials, sessions, or trust boundaries.
+2. Privacy, secrets, or exposure of sensitive data.
+3. Destructive, irreversible, or data-loss migration and persistence.
+4. Injection, sandbox, or other security-boundary behavior.
+5. Money movement, billing, or safety-critical control flow.
+6. Concurrency or ordering that can lose, duplicate, or corrupt work.
+
+Do not use `--risk high` for ordinary design choices, mechanical edits, or
+speculative concern. Do not omit `--risk high` to keep a v1 row when the
+decision is in this list. Labels never replace the why explanation.
+
+Read `labels` and `risk` from `gloss --json why`. They are present on every
+annotation, including unlabeled v1 records (`labels` empty, `risk` `none`).
+
 ## While editing
 
 1. Use the `why` protocol above for relevant existing code before deciding on
@@ -146,7 +175,10 @@ Choose locations where prior rationale could materially affect the decision.
 
    ```text
    gloss add <file> <start>:<end> "<why this edit exists>"
+   gloss add --label auth --risk high <file> <start>:<end> "<why this high-risk edit exists>"
    ```
+
+   Apply the high-risk rule above before finishing a decision in that list.
 
 4. Before adding each record, verify that it contains an explicit reason and
    would help a reviewer evaluate the decision. If it only restates the hunk,

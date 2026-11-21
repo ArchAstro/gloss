@@ -118,7 +118,24 @@ git add -A
 gloss lint --staged
 gloss add src/foo.ex 42:58 \
   "Separate parsing from validation so malformed input remains inspectable."
+gloss add --label parser --label api-boundary --risk high src/auth.ex 12:40 \
+  "Check the session before the redirect because an open redirect would mint a token for an attacker-chosen host."
 ```
+
+`--label` may be repeated. Each label must be a unique kebab-case token
+(lowercase letters, digits, and hyphens; no empty segment). `--risk` is
+`none` (the default), `low`, `medium`, or `high`. An add with no labels and
+risk `none` keeps the v1 record layout. Any label, or a risk other than
+`none`, writes v2 and promotes the file so every row uses that field count.
+Malformed labels or risk are rejected. Do not infer risk from the diff; set
+it from the decision you are recording.
+
+Set `--risk high`, and repeat `--label` for each topic that applies, when the
+decision changes authentication or authorization, credentials, privacy or
+secrets, destructive or data-loss migration, a security boundary, money
+movement or billing, or concurrency that can lose or corrupt work. Do not use
+`--risk high` for ordinary design choices, and do not omit it to keep a v1
+row. Labels never replace the explanation.
 
 Metadata comes from flags or environment variables:
 
@@ -138,7 +155,9 @@ Maintenance commands have deliberately different authority:
    whose source coordinates it uses, projects that range into the working tree,
    and returns records that overlap each requested point or
    `<file>:<start>:<end>` range. JSON includes the stored range, coordinate
-   commit, and projected current ranges. It follows direct source lineage and
+   commit, projected current ranges, `labels`, and `risk` on every annotation.
+   Unlabeled v1 records report an empty `labels` array and `risk` `none`. It
+   follows direct source lineage and
    replacement hunks, but does not infer indirect influence across copied or
    independently reimplemented code.
 

@@ -77,6 +77,19 @@ struct AddArgs {
     agent: Option<String>,
     #[arg(long, env = "GLOSS_SESSION")]
     session: Option<String>,
+    #[arg(
+        long = "label",
+        value_name = "LABEL",
+        action = clap::ArgAction::Append,
+        help = "Repeat for each unique kebab-case label"
+    )]
+    labels: Vec<String>,
+    #[arg(
+        long,
+        value_name = "LEVEL",
+        help = "Risk level: none, low, medium, or high (default: none)"
+    )]
+    risk: Option<String>,
 }
 
 #[derive(Args)]
@@ -173,6 +186,8 @@ fn run(cli: &Cli) -> Result<CommandOutput, GlossError> {
                 user: args.user.clone(),
                 agent: args.agent.clone(),
                 session: args.session.clone(),
+                labels: args.labels.clone(),
+                risk: args.risk.clone(),
             },
         ),
         Command::Lint(args) => app.lint(

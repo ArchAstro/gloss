@@ -75,7 +75,7 @@ pub enum Risk {
 }
 
 impl Risk {
-    fn parse(value: &str) -> Option<Self> {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
         match value {
             "none" => Some(Self::None),
             "low" => Some(Self::Low),
@@ -348,15 +348,20 @@ fn parse_labels(value: &str) -> Option<Vec<String>> {
     if value == "-" {
         return Some(Vec::new());
     }
-    let labels: Vec<String> = value.split(',').map(str::to_owned).collect();
+    parse_label_list(&value.split(',').map(str::to_owned).collect::<Vec<_>>())
+}
+
+/// Accepts the same labels a v2 record may store: unique kebab-case tokens.
+/// An empty list is valid and serializes as `-`.
+pub(crate) fn parse_label_list(labels: &[String]) -> Option<Vec<String>> {
     let mut seen = HashSet::with_capacity(labels.len());
-    if labels.is_empty()
-        || labels.iter().any(|label| !valid_label(label))
-        || labels.iter().any(|label| !seen.insert(label))
+    if labels
+        .iter()
+        .any(|label| !valid_label(label) || !seen.insert(label))
     {
         return None;
     }
-    Some(labels)
+    Some(labels.to_vec())
 }
 
 fn valid_label(value: &str) -> bool {
